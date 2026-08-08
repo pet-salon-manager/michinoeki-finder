@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="道の駅検索">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <title>道の駅検索</title>
+  <style>
+    :root{--bg:#f3f7f6;--card:#fff;--text:#10201e;--muted:#667773;--brand:#0f766e;--brand2:#115e59;--border:#d9e4e1;--warn:#b45309}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
+    header{padding:calc(18px + env(safe-area-inset-top)) 18px 16px;background:linear-gradient(135deg,var(--brand),var(--brand2));color:white}
+    header h1{margin:0;font-size:24px}
+    header p{margin:6px 0 0;opacity:.9;font-size:14px}
+    main{max-width:760px;margin:0 auto;padding:16px 14px calc(28px + env(safe-area-inset-bottom))}
+    .status,.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px;margin-bottom:12px}
+    .status strong{display:block;margin-bottom:6px}
+    .muted{color:var(--muted);font-size:14px}
+    button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:0;border-radius:13px;padding:12px 14px;font-size:16px;font-weight:700;text-decoration:none;cursor:pointer}
+    button.primary,.btn.primary{background:var(--brand);color:white}
+    button.secondary,.btn.secondary{background:#e7f3f1;color:var(--brand2)}
+    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    .station h2{font-size:19px;margin:0 0 4px}
+    .distance{font-size:28px;font-weight:800;color:var(--brand);margin:8px 0 2px}
+    .badge{display:inline-block;background:#e7f3f1;color:var(--brand2);padding:5px 9px;border-radius:999px;font-size:13px;font-weight:700}
+    .empty{text-align:center;padding:28px 16px}
+    .big{font-size:42px;margin-bottom:8px}
+    .error{border-color:#fed7aa;background:#fff7ed}
+    .small{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.5}
+    select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-radius:10px;background:white}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  </style>
+</head>
+<body>
+<header>
+  <h1>🚉 道の駅検索</h1>
+  <p>現在地から近い「道の駅」を探します</p>
+</header>
+<main>
+  <section class="status" id="status">
+    <strong>現在地を確認しています…</strong>
+    <div class="muted">初回は位置情報の許可を求められます。「許可」を選んでください。</div>
+  </section>
+
+  <section class="card">
+    <div class="row">
+      <div>
+        <strong>検索範囲</strong>
+        <div class="muted">初期設定は10km以内です</div>
+      </div>
+      <select id="radius">
+        <option value="5">5km</option>
+        <option value="10" selected>10km</option>
+        <option value="20">20km</option>
+        <option value="50">50km</option>
+      </select>
+    </div>
+    <div class="actions">
+      <button class="primary" id="locate">📍 現在地から検索</button>
+    </div>
+  </section>
+
+  <div id="results" aria-live="polite"></div>
+
+  <p class="small">
+    道の駅データはOpenStreetMapの公開データから現在地周辺を検索します。
+    店舗名の登録状況により、一部の道の駅が表示されない場合があります。
+    「公式サイト検索」はGoogle検索を開きます。
+  </p>
+</main>
+
+<script>
+const statusEl = document.getElementById('status');
+const resultsEl = document.getElementById('results');
+const radiusEl = document.getElementById('radius');
+const locateBtn = document.getElementById('locate');
+
+function setStatus(title, detail='', error=false){
+  statusEl.className = 'status' + (error ? ' error' : '');
+  statusEl.innerHTML = `<strong>${title}</strong><div class="muted">${detail}</div>`;
+}
+
+function esc(s=''){
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
+
+function haversine(lat1, lon1, lat2, lon2){
+  const R=6371, toRad=d=>d*Math.PI/180;
+  const dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
+  const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+function coords(el){
+  if(el.type==='node') return [el.lat, el.lon];
+  if(el.center) return [el.center.lat, el.center.lon];
+  return [null,null];
+}
+
+async function searchStations(lat, lon, radiusKm){
+  const radiusM = radiusKm * 1000;
+  const q = `[out:json][timeout:25];
+  (
+    nwr(around:${radiusM},${lat},${lon})["name"~"道の駅"];
+    nwr(around:${radiusM},${lat},${lon})["name:ja"~"道の駅"];
+  );
+  out center tags;`;
+  const url = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q);
+  const res = await fetch(url);
+  if(!res.ok) throw new Error('道の駅データの取得に失敗しました');
+  const data = await res.json();
+
+  const seen = new Set();
+  const stations = [];
+  for(const el of data.elements || []){
+    const [sLat,sLon] = coords(el);
+    if(sLat==null || sLon==null) continue;
+    const tags = el.tags || {};
+    const name = tags['name:ja'] || tags.name;
+    if(!name || !name.includes('道の駅')) continue;
+    const key = `${name}|${sLat.toFixed(4)}|${sLon.toFixed(4)}`;
+    if(seen.has(key)) continue;
+    seen.add(key);
+    stations.push({
+      name, lat:sLat, lon:sLon,
+      distance:haversine(lat,lon,sLat,sLon),
+      website:tags.website || tags['contact:website'] || ''
+    });
+  }
+  return stations.sort((a,b)=>a.distance-b.distance);
+}
+
+function render(stations, radiusKm){
+  if(!stations.length){
+    resultsEl.innerHTML = `<section class="card empty"><div class="big">🔎</div><h2>${radiusKm}km以内に道の駅が見つかりませんでした</h2><div class="muted">検索範囲を20km・50kmに広げて再検索できます。</div></section>`;
+    return;
+  }
+  resultsEl.innerHTML = stations.map((s,i)=>{
+    const googleSearch = 'https://www.google.com/search?q=' + encodeURIComponent(`${s.name} 公式`);
+    const map = `https://maps.apple.com/?ll=${s.lat},${s.lon}&q=${encodeURIComponent(s.name)}`;
+    const nav = `https://maps.apple.com/?daddr=${s.lat},${s.lon}&dirflg=d`;
+    const home = s.website || googleSearch;
+    return `<section class="card station">
+      <span class="badge">${i===0?'いちばん近い':'近くの道の駅'}</span>
+      <div class="distance">${s.distance.toFixed(1)} km</div>
+      <h2>${esc(s.name)}</h2>
+      <div class="muted">現在地から直線距離</div>
+      <div class="actions">
+        <a class="btn primary" href="${home}" target="_blank" rel="noopener">🌐 ${s.website?'ホームページ':'公式サイト検索'}</a>
+        <a class="btn secondary" href="${map}" target="_blank" rel="noopener">🗺 地図</a>
+        <a class="btn secondary" href="${nav}" target="_blank" rel="noopener">🚗 経路案内</a>
+      </div>
+    </section>`;
+  }).join('');
+}
+
+function locateAndSearch(){
+  if(!navigator.geolocation){
+    setStatus('位置情報を利用できません','このブラウザは位置情報に対応していません。',true);
+    return;
+  }
+  const radiusKm = Number(radiusEl.value);
+  setStatus('現在地を取得しています…','位置情報の使用を許可してください。');
+  resultsEl.innerHTML = '';
+
+  navigator.geolocation.getCurrentPosition(async pos=>{
+    const {latitude:lat, longitude:lon, accuracy} = pos.coords;
+    setStatus('現在地を取得しました',`精度の目安：約${Math.round(accuracy)}m。${radiusKm}km以内を検索中…`);
+    try{
+      const stations = await searchStations(lat,lon,radiusKm);
+      setStatus(`${radiusKm}km以内に ${stations.length} 件見つかりました`,`近い順に表示しています。`);
+      render(stations,radiusKm);
+    }catch(e){
+      setStatus('検索できませんでした','通信状態を確認して、もう一度お試しください。',true);
+      resultsEl.innerHTML = `<section class="card error"><strong>${esc(e.message || 'エラー')}</strong><div class="muted">Overpass APIが混雑している場合は、少ししてから再検索してください。</div></section>`;
+    }
+  }, err=>{
+    const msg = err.code===1 ? '位置情報が許可されていません。iPhoneの「設定」→「プライバシーとセキュリティ」→「位置情報サービス」からSafariを許可してください。'
+      : err.code===2 ? '現在地を取得できませんでした。GPSや通信状態を確認してください。'
+      : '現在地の取得がタイムアウトしました。もう一度お試しください。';
+    setStatus('現在地を取得できません',msg,true);
+  },{enableHighAccuracy:true, timeout:15000, maximumAge:60000});
+}
+
+locateBtn.addEventListener('click', locateAndSearch);
+radiusEl.addEventListener('change', locateAndSearch);
+window.addEventListener('load', locateAndSearch);
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+}
+</script>
+</body>
+</html>
