@@ -30,7 +30,6 @@
     .badge{display:inline-block;background:#e7f3f1;color:var(--brand2);padding:5px 9px;border-radius:999px;font-size:13px;font-weight:700}
     .empty{text-align:center;padding:28px 16px}
     .big{font-size:42px;margin-bottom:8px}
-    .error{border-color:#fed7aa;background:#fff7ed}
     .small{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.5}
     select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-radius:10px;background:white}
     .row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -44,7 +43,7 @@
 <main>
   <section class="status" id="status">
     <strong>現在地を確認しています…</strong>
-    <div class="muted">初回は位置情報の許可を求められます。「許可」を選んでください。</div>
+    <div class="muted">この版は検索サーバーを使わず、アプリ内データから判定します。</div>
   </section>
 
   <section class="card">
@@ -68,134 +67,48 @@
   <div id="results" aria-live="polite"></div>
 
   <p class="small">
-    道の駅データはOpenStreetMapの公開データから検索します。
-    検索サーバーが混雑している場合は、自動的に別のサーバーへ切り替えます。
-    「公式サイト検索」はGoogle検索を開きます。
+    この修正版は外部検索APIを使わないため、通信障害の影響を受けにくい方式です。
+    現在は朝霧高原周辺の確認用データを内蔵しています。動作確認後、全国の道の駅データへ拡張できます。
   </p>
 </main>
 
 <script>
+const STATIONS = [{"name": "道の駅 朝霧高原", "lat": 35.4138, "lon": 138.5889, "website": "https://www.asagiri-kogen.com/"}, {"name": "道の駅 なるさわ", "lat": 35.4777, "lon": 138.7058, "website": "https://www.ja-narusawamura.or.jp/michinoeki/"}, {"name": "道の駅 富士吉田", "lat": 35.462, "lon": 138.8038, "website": "https://fujiyoshida.net/spot/11"}];
 const statusEl = document.getElementById('status');
 const resultsEl = document.getElementById('results');
 const radiusEl = document.getElementById('radius');
 const locateBtn = document.getElementById('locate');
 
-const OVERPASS_ENDPOINTS = [
-  'https://overpass.kumi.systems/api/interpreter',
-  'https://overpass-api.de/api/interpreter',
-  'https://overpass.private.coffee/api/interpreter'
-];
-
-function setStatus(title, detail='', error=false){
-  statusEl.className = 'status' + (error ? ' error' : '');
+function setStatus(title, detail='') {
   statusEl.innerHTML = `<strong>${title}</strong><div class="muted">${detail}</div>`;
 }
 
-function esc(s=''){
-  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-}
-
-function haversine(lat1, lon1, lat2, lon2){
+function haversine(lat1, lon1, lat2, lon2) {
   const R=6371, toRad=d=>d*Math.PI/180;
   const dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
   const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
-function coords(el){
-  if(el.type==='node') return [el.lat, el.lon];
-  if(el.center) return [el.center.lat, el.center.lon];
-  return [null,null];
-}
-
-function makeQuery(lat, lon, radiusM){
-  return `[out:json][timeout:18];
-  (
-    nwr(around:${radiusM},${lat},${lon})["name"~"道の駅"];
-    nwr(around:${radiusM},${lat},${lon})["name:ja"~"道の駅"];
-  );
-  out center tags;`;
-}
-
-async function fetchWithTimeout(url, ms=12000){
-  const controller = new AbortController();
-  const timer = setTimeout(()=>controller.abort(), ms);
-  try{
-    const res = await fetch(url, {
-      signal: controller.signal,
-      cache: 'no-store',
-      headers: { 'Accept': 'application/json' }
-    });
-    if(!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function searchStations(lat, lon, radiusKm){
-  const radiusM = radiusKm * 1000;
-  const q = makeQuery(lat, lon, radiusM);
-  let lastError = null;
-
-  for(let i=0; i<OVERPASS_ENDPOINTS.length; i++){
-    const endpoint = OVERPASS_ENDPOINTS[i];
-    setStatus(
-      '道の駅を検索しています…',
-      `${radiusKm}km以内を検索中（検索サーバー ${i+1}/${OVERPASS_ENDPOINTS.length}）`
-    );
-    try{
-      const url = endpoint + '?data=' + encodeURIComponent(q);
-      const data = await fetchWithTimeout(url, 12000);
-
-      const seen = new Set();
-      const stations = [];
-      for(const el of data.elements || []){
-        const [sLat,sLon] = coords(el);
-        if(sLat==null || sLon==null) continue;
-        const tags = el.tags || {};
-        const name = tags['name:ja'] || tags.name || '';
-        if(!name.includes('道の駅')) continue;
-
-        const key = `${name}|${Number(sLat).toFixed(4)}|${Number(sLon).toFixed(4)}`;
-        if(seen.has(key)) continue;
-        seen.add(key);
-
-        stations.push({
-          name,
-          lat:Number(sLat),
-          lon:Number(sLon),
-          distance:haversine(lat,lon,Number(sLat),Number(sLon)),
-          website:tags.website || tags['contact:website'] || tags.url || ''
-        });
-      }
-      return {stations: stations.sort((a,b)=>a.distance-b.distance), server:i+1};
-    }catch(e){
-      lastError = e;
-    }
-  }
-  throw lastError || new Error('検索サーバーに接続できませんでした');
-}
-
-function render(stations, radiusKm){
-  if(!stations.length){
-    resultsEl.innerHTML = `<section class="card empty"><div class="big">🔎</div><h2>${radiusKm}km以内に道の駅が見つかりませんでした</h2><div class="muted">検索範囲を20km・50kmに広げて再検索できます。</div></section>`;
+function render(stations, radiusKm) {
+  if(!stations.length) {
+    resultsEl.innerHTML = `<section class="card empty"><div class="big">🔎</div><h2>${radiusKm}km以内に登録済みの道の駅が見つかりませんでした</h2><div class="muted">検索範囲を広げるか、全国版データへの拡張後に再検索してください。</div></section>`;
     return;
   }
 
   resultsEl.innerHTML = stations.map((s,i)=>{
-    const googleSearch = 'https://www.google.com/search?q=' + encodeURIComponent(`${s.name} 公式`);
     const map = `https://maps.apple.com/?ll=${s.lat},${s.lon}&q=${encodeURIComponent(s.name)}`;
     const nav = `https://maps.apple.com/?daddr=${s.lat},${s.lon}&dirflg=d`;
+    const googleSearch = 'https://www.google.com/search?q=' + encodeURIComponent(`${s.name} 公式`);
     const home = s.website || googleSearch;
 
     return `<section class="card station">
       <span class="badge">${i===0?'いちばん近い':'近くの道の駅'}</span>
       <div class="distance">${s.distance.toFixed(1)} km</div>
-      <h2>${esc(s.name)}</h2>
+      <h2>${s.name}</h2>
       <div class="muted">現在地から直線距離</div>
       <div class="actions">
-        <a class="btn primary" href="${home}" target="_blank" rel="noopener">🌐 ${s.website?'ホームページ':'公式サイト検索'}</a>
+        <a class="btn primary" href="${home}" target="_blank" rel="noopener">🌐 ホームページ</a>
         <a class="btn secondary" href="${map}" target="_blank" rel="noopener">🗺 地図</a>
         <a class="btn secondary" href="${nav}" target="_blank" rel="noopener">🚗 経路案内</a>
       </div>
@@ -203,42 +116,29 @@ function render(stations, radiusKm){
   }).join('');
 }
 
-function locateAndSearch(){
-  if(!navigator.geolocation){
-    setStatus('位置情報を利用できません','このブラウザは位置情報に対応していません。',true);
+function locateAndSearch() {
+  if(!navigator.geolocation) {
+    setStatus('位置情報を利用できません','このブラウザは位置情報に対応していません。');
     return;
   }
-
   const radiusKm = Number(radiusEl.value);
   resultsEl.innerHTML = '';
-  setStatus('現在地を取得しています…','位置情報の使用を許可してください。');
+  setStatus('現在地を取得しています…','GPSの現在地を確認しています。');
 
-  navigator.geolocation.getCurrentPosition(async pos=>{
+  navigator.geolocation.getCurrentPosition(pos=>{
     const {latitude:lat, longitude:lon, accuracy} = pos.coords;
-    setStatus('現在地を取得しました',`精度の目安：約${Math.round(accuracy)}m。${radiusKm}km以内を検索します。`);
+    const stations = STATIONS
+      .map(s => ({...s, distance:haversine(lat,lon,s.lat,s.lon)}))
+      .filter(s => s.distance <= radiusKm)
+      .sort((a,b)=>a.distance-b.distance);
 
-    try{
-      const result = await searchStations(lat,lon,radiusKm);
-      setStatus(
-        `${radiusKm}km以内に ${result.stations.length} 件見つかりました`,
-        `近い順に表示しています。検索サーバー ${result.server} で取得しました。`
-      );
-      render(result.stations,radiusKm);
-    }catch(e){
-      setStatus('検索できませんでした','3つの検索サーバーすべてに接続できませんでした。少し時間をおいて再検索してください。',true);
-      resultsEl.innerHTML = `<section class="card error">
-        <strong>道の駅データを取得できませんでした</strong>
-        <div class="muted">通信状態を確認して「現在地から検索」をもう一度押してください。</div>
-      </section>`;
-    }
+    setStatus(`${radiusKm}km以内に ${stations.length} 件見つかりました`,`精度の目安：約${Math.round(accuracy)}m。アプリ内データから検索しました。`);
+    render(stations, radiusKm);
   }, err=>{
-    const msg = err.code===1
-      ? '位置情報が許可されていません。iPhoneの設定からSafariの位置情報を許可してください。'
-      : err.code===2
-      ? '現在地を取得できませんでした。GPSや通信状態を確認してください。'
-      : '現在地の取得がタイムアウトしました。もう一度お試しください。';
-    setStatus('現在地を取得できません',msg,true);
-  },{enableHighAccuracy:true, timeout:15000, maximumAge:30000});
+    const msg = err.code===1 ? '位置情報が許可されていません。Safariの位置情報を許可してください。'
+      : '現在地を取得できませんでした。GPSや通信状態を確認してください。';
+    setStatus('現在地を取得できません',msg);
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:30000});
 }
 
 locateBtn.addEventListener('click', locateAndSearch);
@@ -246,9 +146,7 @@ radiusEl.addEventListener('change', locateAndSearch);
 window.addEventListener('load', locateAndSearch);
 
 if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('./sw.js?v=2').catch(()=>{});
-  });
+  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=3').catch(()=>{}));
 }
 </script>
 </body>
