@@ -66,6 +66,25 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
 .leaflet-map-pane canvas{z-index:100}
 .leaflet-map-pane svg{z-index:200}
 
+
+.search-panel{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:14px;margin-bottom:12px}
+.search-title{font-weight:700;margin-bottom:8px}
+.search-row{display:flex;gap:8px;align-items:center}
+.search-input{flex:1;min-width:0;font-size:16px;padding:12px 13px;border:1px solid var(--border);border-radius:12px;background:white;color:var(--text)}
+.search-clear{background:#eef3f2;color:var(--text);padding:11px 12px}
+.search-help{font-size:12px;color:var(--muted);margin-top:7px}
+.search-results-title{font-weight:700;margin:14px 0 8px}
+.memo-box{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.memo-label{font-size:13px;font-weight:700;margin-bottom:6px}
+.memo-text{font-size:14px;white-space:pre-wrap;color:var(--text);background:#f7faf9;border-radius:10px;padding:9px 10px;margin-bottom:8px}
+.memo-empty{font-size:13px;color:var(--muted);margin-bottom:8px}
+.memo-editor{width:100%;min-height:92px;resize:vertical;border:1px solid var(--border);border-radius:11px;padding:10px;font:inherit;font-size:16px;background:white;color:var(--text)}
+.memo-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.memo-btn{background:#eef3f2;color:var(--brand2)}
+.memo-save{background:var(--brand);color:white}
+.memo-cancel{background:#eef3f2;color:var(--text)}
+.search-hit{border-color:#9ecbc5}
+
 </style>
 </head>
 <body>
@@ -74,6 +93,15 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
 <p>現在地から近い道の駅を、通信APIなしで検索</p>
 </header>
 <main>
+<section class="search-panel">
+  <div class="search-title">🔎 道の駅・メモ検索</div>
+  <div class="search-row">
+    <input id="stationSearch" class="search-input" type="search" placeholder="例：朝霧、富士宮、ソフトクリーム" autocomplete="off">
+    <button id="clearSearch" type="button" class="search-clear" aria-label="検索をクリア">×</button>
+  </div>
+  <div class="search-help">道の駅名・都道府県・市町村・自分で書いたメモから検索できます。</div>
+  <div id="searchResults" aria-live="polite"></div>
+</section>
 <section class="map-wrap">
 <div class="map-head">
 <strong>🗺 現在地と周辺の道の駅</strong>
@@ -184,6 +212,108 @@ const statusEl=document.getElementById('status');
 const resultsEl=document.getElementById('results');
 const radiusEl=document.getElementById('radius');
 const locateBtn=document.getElementById('locate');
+const stationSearch=document.getElementById('stationSearch');
+const clearSearch=document.getElementById('clearSearch');
+const searchResults=document.getElementById('searchResults');
+const MEMO_KEY='michinoeki-memos-v1';
+
+function stationId(s){
+ return `${s.n}|${s.p}|${s.c}|${s.la}|${s.lo}`;
+}
+function loadMemos(){
+ try{return JSON.parse(localStorage.getItem(MEMO_KEY)||'{}')}catch(e){return {}}
+}
+function saveMemos(memos){
+ localStorage.setItem(MEMO_KEY,JSON.stringify(memos));
+}
+function getMemo(s){
+ const memos=loadMemos();
+ return memos[stationId(s)]||'';
+}
+function setMemo(s,text){
+ const memos=loadMemos();
+ const id=stationId(s);
+ const t=(text||'').trim();
+ if(t)memos[id]=t; else delete memos[id];
+ saveMemos(memos);
+}
+function stationSearchText(s){
+ return `${s.n} ${s.p} ${s.c} ${getMemo(s)}`.toLowerCase();
+}
+function memoMarkup(s){
+ const memo=getMemo(s);
+ const sid=encodeURIComponent(stationId(s));
+ return `<div class="memo-box" data-station-id="${sid}">
+   <div class="memo-label">📝 自分のメモ</div>
+   ${memo?`<div class="memo-text">${esc(memo)}</div>`:`<div class="memo-empty">まだメモはありません。</div>`}
+   <button type="button" class="memo-btn" data-action="edit-memo" data-sid="${sid}">${memo?'メモを編集':'メモを書く'}</button>
+ </div>`;
+}
+function attachMemoHandlers(root=document){
+ root.querySelectorAll('[data-action="edit-memo"]').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+   const sid=decodeURIComponent(btn.dataset.sid);
+   const s=STATIONS.find(x=>stationId(x)===sid);
+   if(!s)return;
+   const box=btn.closest('.memo-box');
+   const memo=getMemo(s);
+   box.innerHTML=`<div class="memo-label">📝 自分のメモ</div>
+     <textarea class="memo-editor" maxlength="1000" placeholder="例：ソフトクリームがおいしい、また寄りたい">${esc(memo)}</textarea>
+     <div class="memo-actions">
+       <button type="button" class="memo-save">保存</button>
+       <button type="button" class="memo-cancel">キャンセル</button>
+     </div>`;
+   const ta=box.querySelector('.memo-editor');
+   ta.focus();
+   box.querySelector('.memo-save').addEventListener('click',()=>{
+    setMemo(s,ta.value);
+    refreshVisibleViews();
+   });
+   box.querySelector('.memo-cancel').addEventListener('click',refreshVisibleViews);
+  });
+ });
+}
+function renderSearchResults(query){
+ const q=(query||'').trim().toLowerCase();
+ if(!q){
+  searchResults.innerHTML='';
+  return;
+ }
+ const hits=STATIONS.filter(s=>stationSearchText(s).includes(q)).slice(0,100);
+ if(!hits.length){
+  searchResults.innerHTML='<div class="search-results-title">該当する道の駅はありません</div>';
+  return;
+ }
+ searchResults.innerHTML=`<div class="search-results-title">${hits.length}${hits.length===100?'件以上':'件'}見つかりました</div>`+
+  hits.map(s=>{
+   const google='https://www.google.com/search?q='+encodeURIComponent(`${s.n} 公式`);
+   const home=s.u||google;
+   const nav=`https://maps.apple.com/?daddr=${s.la},${s.lo}&dirflg=d`;
+   return `<section class="card station search-hit">
+     <h2>${esc(s.n)}</h2>
+     <div class="muted">${esc(s.p)} ${esc(s.c)}</div>
+     <div class="actions">
+       <a class="btn primary" href="${home}" target="_blank" rel="noopener">🌐 ホームページ</a>
+       <a class="btn secondary" href="${nav}" target="_blank" rel="noopener">🚗 経路案内</a>
+     </div>
+     ${memoMarkup(s)}
+   </section>`;
+  }).join('');
+ attachMemoHandlers(searchResults);
+}
+function refreshVisibleViews(){
+ renderSearchResults(stationSearch.value);
+ if(window.__lastItems){
+  render(window.__lastItems,window.__lastRadius);
+ }
+}
+stationSearch.addEventListener('input',()=>renderSearchResults(stationSearch.value));
+clearSearch.addEventListener('click',()=>{
+ stationSearch.value='';
+ renderSearchResults('');
+ stationSearch.focus();
+});
+
 
 function setStatus(title,detail=''){
  statusEl.innerHTML=`<strong>${title}</strong><div class="muted">${detail}</div>`;
@@ -217,8 +347,10 @@ function render(items,radiusKm){
     <a class="btn secondary" href="${map}" target="_blank" rel="noopener">🗺 地図</a>
     <a class="btn secondary" href="${nav}" target="_blank" rel="noopener">🚗 経路案内</a>
    </div>
+   ${memoMarkup(s)}
   </section>`;
  }).join('');
+ attachMemoHandlers(resultsEl);
 }
 function locateAndSearch(){
  if(!navigator.geolocation){
@@ -232,6 +364,8 @@ function locateAndSearch(){
   const {latitude:lat,longitude:lon,accuracy}=pos.coords;
   const items=STATIONS.map(s=>({...s,d:haversine(lat,lon,s.la,s.lo)}))
    .filter(s=>s.d<=r).sort((a,b)=>a.d-b.d);
+  window.__lastItems=items;
+  window.__lastRadius=r;
   setStatus(`${r}km以内に ${items.length} 件見つかりました`,`精度の目安：約${Math.round(accuracy)}m。全国内蔵データから検索しました。`);
   updateMap(lat,lon,items,r);
   render(items,r);
@@ -244,7 +378,7 @@ locateBtn.addEventListener('click',locateAndSearch);
 radiusEl.addEventListener('change',locateAndSearch);
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=6').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=7').catch(()=>{}));
 }
 </script>
 </body>
