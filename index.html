@@ -909,30 +909,80 @@ function renderRailStations(lat,lon){
 }
 
 function locateAndSearch(){
- if(!navigator.geolocation){
-  setStatus('位置情報を利用できません','このブラウザは位置情報に対応していません。');
-  return;
- }
- const r=Number(radiusEl.value);
- resultsEl.innerHTML='';
- setStatus('現在地を取得しています…','GPSを確認しています。');
- navigator.geolocation.getCurrentPosition(pos=>{
-  const {latitude:lat,longitude:lon,accuracy}=pos.coords;
-  const items=STATIONS.map(s=>({...s,d:haversine(lat,lon,s.la,s.lo)}))
-   .filter(s=>s.d<=r).sort((a,b)=>a.d-b.d);
-  window.__lastItems=items;
-  window.__lastRadius=r;
-  setStatus(`${r}km以内に ${items.length} 件見つかりました`,`精度の目安：約${Math.round(accuracy)}m。全国内蔵データから検索しました。`);
-  updateMap(lat,lon,items,r);
-  renderRailStations(lat,lon);
-  fitMapToRailRange(lat,lon);
-  setRailwayLayer(railwayToggle.checked);
-  setRoadsideLayer(roadsideToggle.checked);
-  render(items,r);
- },err=>{
-  const msg=err.code===1?'位置情報が許可されていません。Safariの位置情報を許可してください。':'現在地を取得できませんでした。GPSや通信状態を確認してください。';
-  setStatus('現在地を取得できません',msg);
- },{enableHighAccuracy:true,timeout:15000,maximumAge:30000});
+  if(!navigator.geolocation){
+    setStatus('位置情報を利用できません','このブラウザでは位置情報を利用できません。');
+    return;
+  }
+
+  const r=Number(radiusEl.value);
+  resultsEl.innerHTML='';
+  setStatus('現在地を取得しています…','iPhoneの位置情報を確認しています。');
+
+  let finished=false;
+
+  const timer=setTimeout(()=>{
+    if(finished)return;
+    finished=true;
+    setStatus(
+      '現在地を取得できませんでした',
+      '位置情報の取得に時間がかかっています。「現在地から検索」をもう一度押してください。'
+    );
+  },15000);
+
+  navigator.geolocation.getCurrentPosition(
+    pos=>{
+      if(finished)return;
+      finished=true;
+      clearTimeout(timer);
+
+      const {latitude:lat,longitude:lon,accuracy}=pos.coords;
+
+      const items=STATIONS
+        .map(s=>({...s,d:haversine(lat,lon,s.lat,s.lon)}))
+        .filter(s=>s.d<=r)
+        .sort((a,b)=>a.d-b.d);
+
+      window.__lastItems=items;
+      window.__lastRadius=r;
+
+      setStatus(
+        `${r}km以内に ${items.length} 件見つかりました`,
+        `現在地を取得しました。精度の目安：約${Math.round(accuracy)}m`
+      );
+
+      updateMap(lat,lon,items,r);
+      renderRailStations(lat,lon);
+      fitMapToRailRange(lat,lon);
+      setRailwayLayer(railwayToggle.checked);
+      setRoadsideLayer(roadsideToggle.checked);
+      render(items,r);
+    },
+    err=>{
+      if(finished)return;
+      finished=true;
+      clearTimeout(timer);
+
+      let msg='位置情報を取得できませんでした。';
+
+      if(err.code===1){
+        msg='位置情報の使用が許可されていません。';
+      }else if(err.code===2){
+        msg='現在地を確認できませんでした。';
+      }else if(err.code===3){
+        msg='位置情報の取得がタイムアウトしました。';
+      }
+
+      setStatus(
+        '現在地を取得できません',
+        msg+' 「現在地から検索」をもう一度押してください。'
+      );
+    },
+    {
+      enableHighAccuracy:false,
+      timeout:12000,
+      maximumAge:60000
+    }
+  );
 }
 locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch();});
 radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
