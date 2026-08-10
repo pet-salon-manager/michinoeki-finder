@@ -385,8 +385,7 @@ background:rgba(255,255,255,.96);border:1px solid var(--border);border-radius:16
 </script>
 </main>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
 const STAMP_TOTAL=1145,WANT_KEY='michinoeki-want-v1',VISITED_KEY='michinoeki-visited-v1';
 function loadStampSet(k){try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'))}catch(e){return new Set()}}
 let wantSet=loadStampSet(WANT_KEY),visitedSet=loadStampSet(VISITED_KEY);
@@ -402,28 +401,12 @@ function updateStampUI(){
  box.querySelector('.visited-stamp')?.classList.toggle('active',visitedSet.has(id));});
 }
 function saveStampSets(){localStorage.setItem(WANT_KEY,JSON.stringify([...wantSet]));localStorage.setItem(VISITED_KEY,JSON.stringify([...visitedSet]));updateStampUI()}
-
-document.addEventListener('click',function(e){
- const btn=e.target.closest('[data-stamp-action]');
- if(!btn)return;
- const box=btn.closest('[data-stamp-id]');
- if(!box)return;
- e.preventDefault();
- e.stopPropagation();
-
+document.addEventListener('click',e=>{
+ const box=e.target.closest('[data-stamp-id]');if(!box)return;
  const id=decodeURIComponent(box.dataset.stampId);
- const action=btn.dataset.stampAction;
-
- if(action==='want'){
-   wantSet.has(id)?wantSet.delete(id):wantSet.add(id);
- }else if(action==='visited'){
-   visitedSet.has(id)?visitedSet.delete(id):visitedSet.add(id);
- }
-
- saveStampSets();
- try{ if(typeof renderStampBreakdown==='function') renderStampBreakdown(); }catch(err){}
+ if(e.target.closest('.want-stamp')){wantSet.has(id)?wantSet.delete(id):wantSet.add(id);saveStampSets()}
+ if(e.target.closest('.visited-stamp')){visitedSet.has(id)?visitedSet.delete(id):visitedSet.add(id);saveStampSets()}
 });
-
 new MutationObserver(updateStampUI).observe(document.body,{childList:true,subtree:true});
 setTimeout(updateStampUI,0);
 
@@ -716,8 +699,8 @@ function memoMarkup(s){
    ${memo?`<div class="memo-text">${esc(memo)}</div>`:`<div class="memo-empty">まだメモはありません。</div>`}
    <button type="button" class="memo-btn" data-action="edit-memo" data-sid="${sid}">${memo?'メモを編集':'メモを書く'}</button>
    <div class="stamp-actions" data-stamp-id="${sid}">
-    <button type="button" class="stamp-btn want-stamp" data-stamp-action="want">❤️ 行きたい</button>
-    <button type="button" class="stamp-btn visited-stamp" data-stamp-action="visited">✅ 訪問済み</button>
+    <button type="button" class="stamp-btn want-stamp">❤️ 行きたい</button>
+    <button type="button" class="stamp-btn visited-stamp">✅ 訪問済み</button>
    </div>
    <div class="facility-tags">
     <span class="facility-tag">🍦 グルメ情報</span><span class="facility-tag">🎁 お土産</span>
@@ -909,86 +892,36 @@ function renderRailStations(lat,lon){
 }
 
 function locateAndSearch(){
-  if(!navigator.geolocation){
-    setStatus('位置情報を利用できません','このブラウザでは位置情報を利用できません。');
-    return;
-  }
-
-  const r=Number(radiusEl.value);
-  resultsEl.innerHTML='';
-  setStatus('現在地を取得しています…','iPhoneの位置情報を確認しています。');
-
-  let finished=false;
-
-  const timer=setTimeout(()=>{
-    if(finished)return;
-    finished=true;
-    setStatus(
-      '現在地を取得できませんでした',
-      '位置情報の取得に時間がかかっています。「現在地から検索」をもう一度押してください。'
-    );
-  },15000);
-
-  navigator.geolocation.getCurrentPosition(
-    pos=>{
-      if(finished)return;
-      finished=true;
-      clearTimeout(timer);
-
-      const {latitude:lat,longitude:lon,accuracy}=pos.coords;
-
-      const items=STATIONS
-        .map(s=>({...s,d:haversine(lat,lon,s.lat,s.lon)}))
-        .filter(s=>s.d<=r)
-        .sort((a,b)=>a.d-b.d);
-
-      window.__lastItems=items;
-      window.__lastRadius=r;
-
-      setStatus(
-        `${r}km以内に ${items.length} 件見つかりました`,
-        `現在地を取得しました。精度の目安：約${Math.round(accuracy)}m`
-      );
-
-      updateMap(lat,lon,items,r);
-      renderRailStations(lat,lon);
-      fitMapToRailRange(lat,lon);
-      setRailwayLayer(railwayToggle.checked);
-      setRoadsideLayer(roadsideToggle.checked);
-      render(items,r);
-    },
-    err=>{
-      if(finished)return;
-      finished=true;
-      clearTimeout(timer);
-
-      let msg='位置情報を取得できませんでした。';
-
-      if(err.code===1){
-        msg='位置情報の使用が許可されていません。';
-      }else if(err.code===2){
-        msg='現在地を確認できませんでした。';
-      }else if(err.code===3){
-        msg='位置情報の取得がタイムアウトしました。';
-      }
-
-      setStatus(
-        '現在地を取得できません',
-        msg+' 「現在地から検索」をもう一度押してください。'
-      );
-    },
-    {
-      enableHighAccuracy:false,
-      timeout:12000,
-      maximumAge:60000
-    }
-  );
+ if(!navigator.geolocation){
+  setStatus('位置情報を利用できません','このブラウザは位置情報に対応していません。');
+  return;
+ }
+ const r=Number(radiusEl.value);
+ resultsEl.innerHTML='';
+ setStatus('現在地を取得しています…','GPSを確認しています。');
+ navigator.geolocation.getCurrentPosition(pos=>{
+  const {latitude:lat,longitude:lon,accuracy}=pos.coords;
+  const items=STATIONS.map(s=>({...s,d:haversine(lat,lon,s.la,s.lo)}))
+   .filter(s=>s.d<=r).sort((a,b)=>a.d-b.d);
+  window.__lastItems=items;
+  window.__lastRadius=r;
+  setStatus(`${r}km以内に ${items.length} 件見つかりました`,`精度の目安：約${Math.round(accuracy)}m。全国内蔵データから検索しました。`);
+  updateMap(lat,lon,items,r);
+  renderRailStations(lat,lon);
+  fitMapToRailRange(lat,lon);
+  setRailwayLayer(railwayToggle.checked);
+  setRoadsideLayer(roadsideToggle.checked);
+  render(items,r);
+ },err=>{
+  const msg=err.code===1?'位置情報が許可されていません。Safariの位置情報を許可してください。':'現在地を取得できませんでした。GPSや通信状態を確認してください。';
+  setStatus('現在地を取得できません',msg);
+ },{enableHighAccuracy:true,timeout:15000,maximumAge:30000});
 }
 locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch();});
 radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=19').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=17').catch(()=>{}));
 }
 </script>
 </body>
