@@ -699,8 +699,8 @@ function memoMarkup(s){
    ${memo?`<div class="memo-text">${esc(memo)}</div>`:`<div class="memo-empty">まだメモはありません。</div>`}
    <button type="button" class="memo-btn" data-action="edit-memo" data-sid="${sid}">${memo?'メモを編集':'メモを書く'}</button>
    <div class="stamp-actions" data-stamp-id="${sid}">
-    <button type="button" class="stamp-btn want-stamp">❤️ 行きたい</button>
-    <button type="button" class="stamp-btn visited-stamp">✅ 訪問済み</button>
+    <button type="button" class="stamp-btn want-stamp" data-simple-stamp="want">❤️ 行きたい</button>
+    <button type="button" class="stamp-btn visited-stamp" data-simple-stamp="visited">✅ 訪問済み</button>
    </div>
    <div class="facility-tags">
     <span class="facility-tag">🍦 グルメ情報</span><span class="facility-tag">🎁 お土産</span>
@@ -924,5 +924,102 @@ if('serviceWorker' in navigator){
  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=17').catch(()=>{}));
 }
 </script>
+
+<script id="simple-stamp-fix-v17">
+(function(){
+  'use strict';
+
+  var WANT_KEY = 'michinoeki-simple-want-v1';
+  var VISITED_KEY = 'michinoeki-simple-visited-v1';
+  var TOTAL = 1145;
+
+  function readSet(key){
+    try {
+      var arr = JSON.parse(localStorage.getItem(key) || '[]');
+      return new Set(Array.isArray(arr) ? arr : []);
+    } catch(e) {
+      return new Set();
+    }
+  }
+
+  function writeSet(key, set){
+    try {
+      localStorage.setItem(key, JSON.stringify(Array.from(set)));
+    } catch(e) {}
+  }
+
+  function refreshSimpleStamp(){
+    var wants = readSet(WANT_KEY);
+    var visited = readSet(VISITED_KEY);
+
+    document.querySelectorAll('[data-stamp-id]').forEach(function(box){
+      var id = box.getAttribute('data-stamp-id') || '';
+      var wantBtn = box.querySelector('[data-simple-stamp="want"]');
+      var visitedBtn = box.querySelector('[data-simple-stamp="visited"]');
+
+      if(wantBtn){
+        wantBtn.classList.toggle('active', wants.has(id));
+        wantBtn.setAttribute('aria-pressed', wants.has(id) ? 'true' : 'false');
+      }
+      if(visitedBtn){
+        visitedBtn.classList.toggle('active', visited.has(id));
+        visitedBtn.setAttribute('aria-pressed', visited.has(id) ? 'true' : 'false');
+      }
+    });
+
+    var vc = document.getElementById('visitedCount');
+    var wc = document.getElementById('wantCount');
+    var bar = document.getElementById('stampProgressBar');
+    var pctText = document.getElementById('stampPercent');
+
+    if(vc) vc.textContent = visited.size;
+    if(wc) wc.textContent = wants.size;
+
+    var pct = Math.min(100, (visited.size / TOTAL) * 100);
+    if(bar) bar.style.width = pct + '%';
+    if(pctText) pctText.textContent = '達成率 ' + pct.toFixed(1) + '%';
+  }
+
+  document.addEventListener('click', function(event){
+    var btn = event.target.closest('[data-simple-stamp]');
+    if(!btn) return;
+
+    var box = btn.closest('[data-stamp-id]');
+    if(!box) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    var id = box.getAttribute('data-stamp-id') || '';
+    var action = btn.getAttribute('data-simple-stamp');
+
+    if(action === 'want'){
+      var wants = readSet(WANT_KEY);
+      if(wants.has(id)) wants.delete(id);
+      else wants.add(id);
+      writeSet(WANT_KEY, wants);
+    }
+
+    if(action === 'visited'){
+      var visited = readSet(VISITED_KEY);
+      if(visited.has(id)) visited.delete(id);
+      else visited.add(id);
+      writeSet(VISITED_KEY, visited);
+    }
+
+    refreshSimpleStamp();
+  }, true);
+
+  // Re-apply the selected state whenever station cards are re-rendered.
+  var observer = new MutationObserver(function(){
+    refreshSimpleStamp();
+  });
+  observer.observe(document.body, {childList:true, subtree:true});
+
+  window.addEventListener('pageshow', refreshSimpleStamp);
+  setTimeout(refreshSimpleStamp, 0);
+})();
+</script>
+
 </body>
 </html>
