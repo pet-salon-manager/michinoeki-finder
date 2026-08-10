@@ -123,6 +123,18 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
   text-decoration:none;padding:10px 8px;border:1px solid var(--border);
   border-radius:10px;background:#f7faf9;font-weight:700;font-size:13px;color:var(--text)
 }
+
+.view-switch{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+  background:var(--card);border:1px solid var(--border);border-radius:16px;
+  padding:8px;margin:12px 0;
+}
+.view-switch button{
+  border:0;border-radius:11px;padding:11px 8px;font-size:15px;font-weight:800;
+  background:#eef3f2;color:var(--text)
+}
+.view-switch button.active{background:var(--brand);color:#fff}
+#railView[hidden],#roadsideView[hidden]{display:none!important}
 </style>
 </head>
 <body>
@@ -156,21 +168,24 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
 </div>
 </section>
 
-<section class="rail-list-controls">
-  <label class="rail-list-toggle">
-    <input id="railListToggle" type="checkbox" checked>
-    🚉 駅名・移動手段の一覧を表示
-  </label>
-  <div class="rail-list-actions">
-    <span class="muted" id="railListStatus">オン</span>
-    <button type="button" class="rail-refresh" id="railRefreshBtn">📍 近くの駅を更新</button>
-  </div>
+<section class="view-switch" aria-label="表示切り替え">
+  <button type="button" id="showRailView" class="active">🚉 駅を見る</button>
+  <button type="button" id="showRoadsideView">🛣️ 道の駅を見る</button>
 </section>
 
-<section class="rail-results" id="railResults">
+<div id="railView">
+  <section class="rail-list-controls">
+    <div class="rail-list-toggle">🚉 近くの駅・移動手段</div>
+    <div class="rail-list-actions">
+      <button type="button" class="rail-refresh" id="railRefreshBtn">📍 近くの駅を更新</button>
+    </div>
+  </section>
+  <section class="rail-results" id="railResults">
   <div class="rail-summary"><strong>🚉 近くの鉄道駅を検索しています…</strong></div>
 </section>
+</div>
 
+<div id="roadsideView" hidden>
 <div class="data-note">
 <strong>全国1,145駅の位置情報を内蔵</strong><br>
 国土交通省「国土数値情報 道の駅データ（2018年度）」と「鉄道データ（2024年度）」を使用しています。
@@ -201,6 +216,7 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
 </section>
 
 <div id="results" aria-live="polite"></div>
+</div>
 
 <p class="small">
 距離はGPS現在地から道の駅までの直線距離です。経路案内ではAppleマップを開きます。
@@ -294,17 +310,24 @@ function setRailwayLayer(enabled){
 }
 railwayToggle.addEventListener('change',()=>setRailwayLayer(railwayToggle.checked));
 
-const railListToggle=document.getElementById('railListToggle');
-const railListStatus=document.getElementById('railListStatus');
 const railResultsBox=document.getElementById('railResults');
 const railRefreshBtn=document.getElementById('railRefreshBtn');
+const showRailView=document.getElementById('showRailView');
+const showRoadsideView=document.getElementById('showRoadsideView');
+const railView=document.getElementById('railView');
+const roadsideView=document.getElementById('roadsideView');
 
-function setRailListVisible(enabled){
- if(railResultsBox) railResultsBox.hidden=!enabled;
- if(railListStatus) railListStatus.textContent=enabled?'オン':'オフ';
+function setMainView(view){
+ const rail=view==='rail';
+ railView.hidden=!rail;
+ roadsideView.hidden=rail;
+ showRailView.classList.toggle('active',rail);
+ showRoadsideView.classList.toggle('active',!rail);
 }
-railListToggle.addEventListener('change',()=>setRailListVisible(railListToggle.checked));
-setRailListVisible(railListToggle.checked);
+showRailView.addEventListener('click',()=>setMainView('rail'));
+showRoadsideView.addEventListener('click',()=>setMainView('roadside'));
+setMainView('rail');
+
 
 function refreshNearbyRailStations(){
  if(!navigator.geolocation){
@@ -314,8 +337,6 @@ function refreshNearbyRailStations(){
  railRefreshBtn.disabled=true;
  railRefreshBtn.textContent='更新中…';
  railResultsBox.innerHTML='<div class="rail-summary"><strong>🚉 近くの駅を更新しています…</strong></div>';
- railListToggle.checked=true;
- setRailListVisible(true);
  navigator.geolocation.getCurrentPosition(pos=>{
    const lat=pos.coords.latitude, lon=pos.coords.longitude;
    renderRailStations(lat,lon);
@@ -547,7 +568,6 @@ function locateAndSearch(){
   setStatus(`${r}km以内に ${items.length} 件見つかりました`,`精度の目安：約${Math.round(accuracy)}m。全国内蔵データから検索しました。`);
   updateMap(lat,lon,items,r);
   renderRailStations(lat,lon);
-  setRailListVisible(railListToggle.checked);
   setRailwayLayer(railwayToggle.checked);
   render(items,r);
  },err=>{
@@ -555,11 +575,11 @@ function locateAndSearch(){
   setStatus('現在地を取得できません',msg);
  },{enableHighAccuracy:true,timeout:15000,maximumAge:30000});
 }
-locateBtn.addEventListener('click',locateAndSearch);
-radiusEl.addEventListener('change',locateAndSearch);
+locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch();});
+radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=11').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=12').catch(()=>{}));
 }
 </script>
 </body>
