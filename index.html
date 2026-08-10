@@ -143,6 +143,19 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
   font-size:14px;padding:7px 9px;border:1px solid var(--border);
   border-radius:9px;background:#fff
 }
+
+.stamp-card{background:#fff;border:1px solid var(--border);border-radius:18px;padding:16px;margin:14px 0}
+.stamp-title{font-size:18px;font-weight:800;margin-bottom:10px}
+.stamp-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;text-align:center}
+.stamp-stat{background:#f2f8f6;border-radius:12px;padding:10px 5px}
+.stamp-num{display:block;font-size:22px;font-weight:900;color:var(--brand)}
+.stamp-label{font-size:12px;color:var(--muted)}
+.stamp-progress{height:12px;background:#e6ecea;border-radius:99px;overflow:hidden;margin:12px 0 6px}
+#stampProgressBar{height:100%;background:var(--brand);width:0}
+#stampPercent{text-align:right;font-weight:800}
+.stamp-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.stamp-btn{border:1px solid var(--border);background:#fff;color:var(--text);border-radius:11px;padding:10px 12px;font-weight:700}
+.stamp-btn.active{background:var(--brand);color:#fff;border-color:var(--brand)}
 </style>
 </head>
 <body>
@@ -194,6 +207,16 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
 </div>
 </section>
 
+<section class="stamp-card">
+<div class="stamp-title">🏁 道の駅スタンプラリー</div>
+<div class="stamp-stats">
+<div class="stamp-stat"><span id="visitedCount" class="stamp-num">0</span><span class="stamp-label">訪問済み</span></div>
+<div class="stamp-stat"><span id="wantCount" class="stamp-num">0</span><span class="stamp-label">行きたい</span></div>
+<div class="stamp-stat"><span class="stamp-num">1,145</span><span class="stamp-label">全国</span></div>
+</div>
+<div class="stamp-progress"><div id="stampProgressBar"></div></div>
+<div id="stampPercent">達成率 0.0%</div>
+</section>
 <section class="view-switch" aria-label="表示切り替え">
   <button type="button" id="showRailView" class="active">🚉 駅を見る</button>
   <button type="button" id="showRoadsideView">🛣️ 道の駅を見る</button>
@@ -250,7 +273,31 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
 </p>
 </main>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+const STAMP_TOTAL=1145,WANT_KEY='michinoeki-want-v1',VISITED_KEY='michinoeki-visited-v1';
+function loadStampSet(k){try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'))}catch(e){return new Set()}}
+let wantSet=loadStampSet(WANT_KEY),visitedSet=loadStampSet(VISITED_KEY);
+function updateStampUI(){
+ const vc=document.getElementById('visitedCount'),wc=document.getElementById('wantCount');
+ if(vc){vc.textContent=visitedSet.size;wc.textContent=wantSet.size;
+ const pct=Math.min(100,visitedSet.size/STAMP_TOTAL*100);
+ document.getElementById('stampProgressBar').style.width=pct+'%';
+ document.getElementById('stampPercent').textContent='達成率 '+pct.toFixed(1)+'%';}
+ document.querySelectorAll('[data-stamp-id]').forEach(box=>{
+ const id=decodeURIComponent(box.dataset.stampId);
+ box.querySelector('.want-stamp')?.classList.toggle('active',wantSet.has(id));
+ box.querySelector('.visited-stamp')?.classList.toggle('active',visitedSet.has(id));});
+}
+function saveStampSets(){localStorage.setItem(WANT_KEY,JSON.stringify([...wantSet]));localStorage.setItem(VISITED_KEY,JSON.stringify([...visitedSet]));updateStampUI()}
+document.addEventListener('click',e=>{
+ const box=e.target.closest('[data-stamp-id]');if(!box)return;
+ const id=decodeURIComponent(box.dataset.stampId);
+ if(e.target.closest('.want-stamp')){wantSet.has(id)?wantSet.delete(id):wantSet.add(id);saveStampSets()}
+ if(e.target.closest('.visited-stamp')){visitedSet.has(id)?visitedSet.delete(id):visitedSet.add(id);saveStampSets()}
+});
+new MutationObserver(updateStampUI).observe(document.body,{childList:true,subtree:true});
+setTimeout(updateStampUI,0);
+</script>
 <script>
 let map=null;
 let userMarker=null;
@@ -442,6 +489,10 @@ function memoMarkup(s){
    <div class="memo-label">📝 自分のメモ</div>
    ${memo?`<div class="memo-text">${esc(memo)}</div>`:`<div class="memo-empty">まだメモはありません。</div>`}
    <button type="button" class="memo-btn" data-action="edit-memo" data-sid="${sid}">${memo?'メモを編集':'メモを書く'}</button>
+   <div class="stamp-actions" data-stamp-id="${sid}">
+    <button type="button" class="stamp-btn want-stamp">❤️ 行きたい</button>
+    <button type="button" class="stamp-btn visited-stamp">✅ 訪問済み</button>
+   </div>
  </div>`;
 }
 function attachMemoHandlers(root=document){
@@ -652,7 +703,7 @@ locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch(
 radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=14').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=15').catch(()=>{}));
 }
 </script>
 </body>
