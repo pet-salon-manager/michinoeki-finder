@@ -699,8 +699,8 @@ function memoMarkup(s){
    ${memo?`<div class="memo-text">${esc(memo)}</div>`:`<div class="memo-empty">まだメモはありません。</div>`}
    <button type="button" class="memo-btn" data-action="edit-memo" data-sid="${sid}">${memo?'メモを編集':'メモを書く'}</button>
    <div class="stamp-actions" data-stamp-id="${sid}">
-    <button type="button" class="stamp-btn want-stamp">❤️ 行きたい</button>
-    <button type="button" class="stamp-btn visited-stamp">✅ 訪問済み</button>
+    <button type="button" class="stamp-btn want-stamp" data-stamp-action="want">❤️ 行きたい</button>
+    <button type="button" class="stamp-btn visited-stamp" data-stamp-action="visited">✅ 訪問済み</button>
    </div>
    <div class="facility-tags">
     <span class="facility-tag">🍦 グルメ情報</span><span class="facility-tag">🎁 お土産</span>
@@ -921,8 +921,52 @@ locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch(
 radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=17').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=18').catch(()=>{}));
 }
+</script>
+
+<script>
+(function(){
+ const WANT='michinoeki-want-v1', VIS='michinoeki-visited-v1', TOTAL=1145;
+ function getSet(k){try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'))}catch(e){return new Set()}}
+ function save(k,set){try{localStorage.setItem(k,JSON.stringify(Array.from(set)))}catch(e){}}
+ function refresh(){
+   const w=getSet(WANT),v=getSet(VIS);
+   document.querySelectorAll('[data-stamp-id]').forEach(function(box){
+     const id=box.getAttribute('data-stamp-id');
+     const wb=box.querySelector('[data-stamp-action="want"]');
+     const vb=box.querySelector('[data-stamp-action="visited"]');
+     if(wb) wb.classList.toggle('active',w.has(id));
+     if(vb) vb.classList.toggle('active',v.has(id));
+   });
+   const vc=document.getElementById('visitedCount'),wc=document.getElementById('wantCount');
+   if(vc)vc.textContent=v.size;
+   if(wc)wc.textContent=w.size;
+   const pct=Math.min(100,v.size/TOTAL*100);
+   const bar=document.getElementById('stampProgressBar'),txt=document.getElementById('stampPercent');
+   if(bar)bar.style.width=pct+'%';
+   if(txt)txt.textContent='達成率 '+pct.toFixed(1)+'%';
+ }
+ document.addEventListener('click',function(e){
+   const btn=e.target.closest('[data-stamp-action]');
+   if(!btn)return;
+   const box=btn.closest('[data-stamp-id]');
+   if(!box)return;
+   e.preventDefault(); e.stopPropagation();
+   const id=box.getAttribute('data-stamp-id');
+   if(btn.getAttribute('data-stamp-action')==='want'){
+     const set=getSet(WANT); set.has(id)?set.delete(id):set.add(id); save(WANT,set);
+   }else{
+     const set=getSet(VIS); set.has(id)?set.delete(id):set.add(id); save(VIS,set);
+   }
+   refresh();
+   try{if(typeof updateStampUI==='function')updateStampUI()}catch(err){}
+   try{if(typeof renderStampBreakdown==='function')renderStampBreakdown()}catch(err){}
+ },true);
+ new MutationObserver(refresh).observe(document.body,{childList:true,subtree:true});
+ window.addEventListener('load',refresh);
+ setTimeout(refresh,100);
+})();
 </script>
 </body>
 </html>
