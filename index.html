@@ -166,7 +166,7 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
 <span class="muted" id="mapStatus">現在地を取得中…</span>
 </div>
 <div id="map" aria-label="現在地と周辺の道の駅を表示する地図"></div>
-<div class="map-note">青＝現在地 ／ 赤＝道の駅 ／ 黒＝鉄道駅 ／ 紫＝新幹線駅</div>
+<div class="map-note">青＝現在地 ／ 赤＝道の駅 ／ 黒＝鉄道駅 ／ 紫＝新幹線駅 ／ 破線円＝鉄道駅の検索範囲</div>
 <div class="map-tools">
   <div class="map-filter-group">
     <label class="rail-toggle">
@@ -256,6 +256,7 @@ let map=null;
 let userMarker=null;
 let stationLayer=null;
 let radiusCircle=null;
+let railRangeCircle=null;
 let railwayLayer=null;
 let railStationLayer=null;
 
@@ -355,6 +356,7 @@ roadsideToggle.addEventListener('change',()=>setRoadsideLayer(roadsideToggle.che
 railRange.addEventListener('change',()=>{
  if(window.__lastRailLat!=null && window.__lastRailLon!=null){
   renderRailStations(window.__lastRailLat,window.__lastRailLon);
+  fitMapToRailRange(window.__lastRailLat,window.__lastRailLon);
  }
 });
 
@@ -388,6 +390,7 @@ function refreshNearbyRailStations(){
  navigator.geolocation.getCurrentPosition(pos=>{
    const lat=pos.coords.latitude, lon=pos.coords.longitude;
    renderRailStations(lat,lon);
+   fitMapToRailRange(lat,lon);
    railRefreshBtn.disabled=false;
    railRefreshBtn.textContent='📍 近くの駅を更新';
  },err=>{
@@ -545,6 +548,23 @@ function render(items,radiusKm){
  attachMemoHandlers(resultsEl);
 }
 
+
+function fitMapToRailRange(lat,lon){
+ if(!map) return;
+ const km=Number(railRange.value);
+ if(railRangeCircle) map.removeLayer(railRangeCircle);
+ railRangeCircle=L.circle([lat,lon],{
+   radius:km*1000,
+   color:'#334155',
+   weight:1.5,
+   dashArray:'6 5',
+   fillColor:'#334155',
+   fillOpacity:.025
+ }).addTo(map);
+ map.fitBounds(railRangeCircle.getBounds(),{padding:[24,24]});
+ setTimeout(()=>map.invalidateSize(true),120);
+}
+
 function appleRoute(lat,lon,mode){
  return `https://maps.apple.com/?daddr=${lat},${lon}&dirflg=${mode}`;
 }
@@ -569,7 +589,7 @@ function renderRailStations(lat,lon){
  box.innerHTML=`<div class="rail-summary">
    <strong>🚉 現在地から近い鉄道駅</strong><br>
    <span class="muted">${railKm}km以内 ／ 普通駅 ${normal.length}件を表示${shNearest?` ／ 最寄り新幹線駅：${esc(shNearest.n)} ${shNearest.d.toFixed(1)}km`:` ／ ${railKm}km以内に新幹線駅なし`}</span>
-   <div class="route-note">所要時間は道路・ダイヤで変わるため、各ボタンを押すとAppleマップで現在の経路と所要時間を表示します。</div>
+   <div class="route-note">選択した範囲内の鉄道駅は地図上にすべて表示します。下の一覧は近い駅を抜粋表示します。所要時間は各ボタンからAppleマップで確認できます。</div>
  </div>` + chosen.map(s=>`<section class="card rail-station ${s.sh?'shinkansen':''}">
    <div class="rail-kind ${s.sh?'shinkansen':''}">${s.sh?'🚅 新幹線駅':'🚉 鉄道駅'}</div>
    <div class="distance">${s.d.toFixed(1)} km</div>
@@ -587,7 +607,7 @@ function renderRailStations(lat,lon){
 
  if(railStationLayer){
   railStationLayer.clearLayers();
-  all.slice(0,80).forEach(s=>{
+  all.forEach(s=>{
    const color=s.sh?'#7c3aed':'#334155';
    const popup=`<strong>${s.sh?'🚅':'🚉'} ${esc(s.n)}駅</strong><br>${esc(s.l)}<br>${s.d.toFixed(1)} km
    <div class="popup-actions">
@@ -619,6 +639,7 @@ function locateAndSearch(){
   setStatus(`${r}km以内に ${items.length} 件見つかりました`,`精度の目安：約${Math.round(accuracy)}m。全国内蔵データから検索しました。`);
   updateMap(lat,lon,items,r);
   renderRailStations(lat,lon);
+  fitMapToRailRange(lat,lon);
   setRailwayLayer(railwayToggle.checked);
   setRoadsideLayer(roadsideToggle.checked);
   render(items,r);
@@ -631,7 +652,7 @@ locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch(
 radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=13').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=14').catch(()=>{}));
 }
 </script>
 </body>
