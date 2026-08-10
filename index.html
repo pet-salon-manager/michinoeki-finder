@@ -385,7 +385,8 @@ background:rgba(255,255,255,.96);border:1px solid var(--border);border-radius:16
 </script>
 </main>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
 const STAMP_TOTAL=1145,WANT_KEY='michinoeki-want-v1',VISITED_KEY='michinoeki-visited-v1';
 function loadStampSet(k){try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'))}catch(e){return new Set()}}
 let wantSet=loadStampSet(WANT_KEY),visitedSet=loadStampSet(VISITED_KEY);
@@ -401,12 +402,28 @@ function updateStampUI(){
  box.querySelector('.visited-stamp')?.classList.toggle('active',visitedSet.has(id));});
 }
 function saveStampSets(){localStorage.setItem(WANT_KEY,JSON.stringify([...wantSet]));localStorage.setItem(VISITED_KEY,JSON.stringify([...visitedSet]));updateStampUI()}
-document.addEventListener('click',e=>{
- const box=e.target.closest('[data-stamp-id]');if(!box)return;
+
+document.addEventListener('click',function(e){
+ const btn=e.target.closest('[data-stamp-action]');
+ if(!btn)return;
+ const box=btn.closest('[data-stamp-id]');
+ if(!box)return;
+ e.preventDefault();
+ e.stopPropagation();
+
  const id=decodeURIComponent(box.dataset.stampId);
- if(e.target.closest('.want-stamp')){wantSet.has(id)?wantSet.delete(id):wantSet.add(id);saveStampSets()}
- if(e.target.closest('.visited-stamp')){visitedSet.has(id)?visitedSet.delete(id):visitedSet.add(id);saveStampSets()}
+ const action=btn.dataset.stampAction;
+
+ if(action==='want'){
+   wantSet.has(id)?wantSet.delete(id):wantSet.add(id);
+ }else if(action==='visited'){
+   visitedSet.has(id)?visitedSet.delete(id):visitedSet.add(id);
+ }
+
+ saveStampSets();
+ try{ if(typeof renderStampBreakdown==='function') renderStampBreakdown(); }catch(err){}
 });
+
 new MutationObserver(updateStampUI).observe(document.body,{childList:true,subtree:true});
 setTimeout(updateStampUI,0);
 
@@ -699,8 +716,8 @@ function memoMarkup(s){
    ${memo?`<div class="memo-text">${esc(memo)}</div>`:`<div class="memo-empty">まだメモはありません。</div>`}
    <button type="button" class="memo-btn" data-action="edit-memo" data-sid="${sid}">${memo?'メモを編集':'メモを書く'}</button>
    <div class="stamp-actions" data-stamp-id="${sid}">
-    <button type="button" class="stamp-btn want-stamp">❤️ 行きたい</button>
-    <button type="button" class="stamp-btn visited-stamp">✅ 訪問済み</button>
+    <button type="button" class="stamp-btn want-stamp" data-stamp-action="want">❤️ 行きたい</button>
+    <button type="button" class="stamp-btn visited-stamp" data-stamp-action="visited">✅ 訪問済み</button>
    </div>
    <div class="facility-tags">
     <span class="facility-tag">🍦 グルメ情報</span><span class="facility-tag">🎁 お土産</span>
@@ -921,7 +938,7 @@ locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch(
 radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=17').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=19').catch(()=>{}));
 }
 </script>
 </body>
