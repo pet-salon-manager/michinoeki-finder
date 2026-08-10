@@ -300,11 +300,11 @@ background:rgba(255,255,255,.96);border:1px solid var(--border);border-radius:16
   <div id="nearAlert" class="near-alert"></div>
 
   <div class="v16-nav">
-    <button class="active" data-v16tab="map">🗺️<br>地図</button>
-    <button data-v16tab="stamp">🏆<br>スタンプ</button>
-    <button data-v16tab="route">🚗<br>ルート</button>
-    <button data-v16tab="rank">⭐<br>ランキング</button>
-    <button data-v16tab="record">📸<br>旅の記録</button>
+    <button type="button" class="active" data-v16tab="map">🗺️<br>地図</button>
+    <button type="button" data-v16tab="stamp">🏆<br>スタンプ</button>
+    <button type="button" data-v16tab="route">🚗<br>ルート</button>
+    <button type="button" data-v16tab="rank">⭐<br>ランキング</button>
+    <button type="button" data-v16tab="record">📸<br>旅の記録</button>
   </div>
 
   <div class="v16-panel active" data-v16panel="map">
@@ -358,6 +358,31 @@ background:rgba(255,255,255,.96);border:1px solid var(--border);border-radius:16
     </div>
   </div>
 </section>
+
+<script>
+(function(){
+ function switchV16Tab(name){
+   document.querySelectorAll('[data-v16tab]').forEach(function(btn){
+     btn.classList.toggle('active',btn.getAttribute('data-v16tab')===name);
+   });
+   document.querySelectorAll('[data-v16panel]').forEach(function(panel){
+     panel.classList.toggle('active',panel.getAttribute('data-v16panel')===name);
+   });
+   try{
+     if(name==='stamp' && typeof renderStampBreakdown==='function') renderStampBreakdown();
+     if(name==='rank' && typeof renderRanking==='function') renderRanking();
+     if(name==='record' && typeof renderVisits==='function') renderVisits();
+   }catch(e){ console.warn(e); }
+ }
+ document.addEventListener('click',function(e){
+   var btn=e.target.closest('[data-v16tab]');
+   if(!btn)return;
+   e.preventDefault();
+   switchV16Tab(btn.getAttribute('data-v16tab'));
+ });
+ window.switchV16Tab=switchV16Tab;
+})();
+</script>
 </main>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
@@ -474,19 +499,12 @@ function checkNearbyUnvisited(lat,lon){
 }
 if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>checkNearbyUnvisited(p.coords.latitude,p.coords.longitude),()=>{});
 
-document.querySelectorAll('[data-v16tab]').forEach(b=>b.addEventListener('click',()=>{
- document.querySelectorAll('[data-v16tab]').forEach(x=>x.classList.toggle('active',x===b));
- document.querySelectorAll('[data-v16panel]').forEach(x=>x.classList.toggle('active',x.dataset.v16panel===b.dataset.v16tab));
- if(b.dataset.v16tab==='stamp')renderStampBreakdown();
- if(b.dataset.v16tab==='rank')renderRanking();
- if(b.dataset.v16tab==='record')renderVisits();
-}));
 document.getElementById('makeRouteBtn').addEventListener('click',makeRoute);
 document.getElementById('openRouteBtn').addEventListener('click',openRoute);
 document.getElementById('saveVisitBtn').addEventListener('click',saveVisit);
 document.getElementById('rankCategory').addEventListener('change',renderRanking);
 new MutationObserver(syncRatingSelects).observe(document.body,{childList:true,subtree:true});
-setTimeout(()=>{renderStampBreakdown();renderVisits();renderRanking();syncRatingSelects()},100);
+setTimeout(()=>{try{renderStampBreakdown()}catch(e){} try{renderVisits()}catch(e){} try{renderRanking()}catch(e){} try{syncRatingSelects()}catch(e){}},100);
 
 </script>
 <script>
@@ -903,7 +921,7 @@ locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch(
 radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=16').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=17').catch(()=>{}));
 }
 </script>
 </body>
