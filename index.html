@@ -176,6 +176,11 @@ background:rgba(255,255,255,.96);border:1px solid var(--border);border-radius:16
 .rating-box{margin-top:10px;padding-top:8px;border-top:1px solid var(--border)}
 .rating-box select{padding:7px;border-radius:8px;border:1px solid var(--border)}
 
+
+.route-stop{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.route-stop-main{flex:1}
+.route-remove{border:0;background:#eef4f2;border-radius:9px;padding:7px 9px;font-weight:800}
+.feature-note{font-size:12px;color:var(--muted);margin:8px 0}
 </style>
 </head>
 <body>
@@ -316,11 +321,18 @@ background:rgba(255,255,255,.96);border:1px solid var(--border);border-radius:16
 
   <div class="v16-panel" data-v16panel="route">
     <div class="v16-card">
-      <h3>🗺️ 行きたい道の駅 巡回ルート</h3>
-      <div class="muted">「行きたい」に登録した道の駅から、現在地に近い順のルートを作ります。</div>
+      <h3>🗺️ 道の駅 巡回ルート</h3>
+      <div class="muted">道の駅名を検索して追加し、巡回ルートを作れます。</div>
+      <div class="visit-form">
+        <label>道の駅を追加
+          <input id="routeStationSearch" placeholder="例：朝霧高原">
+        </label>
+        <button type="button" class="v16-btn secondary" id="routeAddBtn">＋ ルートに追加</button>
+        <button type="button" class="v16-btn secondary" id="routeClearBtn">全部クリア</button>
+      </div>
       <div id="routeArea" class="route-list"></div>
-      <button class="v16-btn" id="makeRouteBtn">現在地からルート作成</button>
-      <button class="v16-btn secondary" id="openRouteBtn">Appleマップで開く</button>
+      <button type="button" class="v16-btn" id="makeRouteBtn">現在地から近い順に並べる</button>
+      <button type="button" class="v16-btn secondary" id="openRouteBtn">先頭の道の駅をAppleマップで開く</button>
     </div>
   </div>
 
@@ -335,6 +347,19 @@ background:rgba(255,255,255,.96);border:1px solid var(--border);border-radius:16
           <option value="rv">🚐 車中泊</option><option value="kids">👨‍👩‍👧 子連れ</option>
         </select>
       </label>
+      <div class="visit-form" style="margin-top:12px">
+        <label>道の駅名<input id="rankStationInput" placeholder="例：朝霧高原"></label>
+        <label>評価
+          <select id="rankScoreInput">
+            <option value="5">★★★★★ 5</option>
+            <option value="4">★★★★☆ 4</option>
+            <option value="3">★★★☆☆ 3</option>
+            <option value="2">★★☆☆☆ 2</option>
+            <option value="1">★☆☆☆☆ 1</option>
+          </select>
+        </label>
+        <button type="button" class="v16-btn" id="saveRankBtn">この評価を保存</button>
+      </div>
       <div id="rankArea"></div>
     </div>
   </div>
@@ -381,7 +406,8 @@ background:rgba(255,255,255,.96);border:1px solid var(--border);border-radius:16
 </script>
 </main>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
 const STAMP_TOTAL=1145,WANT_KEY='michinoeki-want-v1',VISITED_KEY='michinoeki-visited-v1';
 function loadStampSet(k){try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'))}catch(e){return new Set()}}
 let wantSet=loadStampSet(WANT_KEY),visitedSet=loadStampSet(VISITED_KEY);
@@ -907,8 +933,209 @@ locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch(
 radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=17').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=21').catch(()=>{}));
 }
 </script>
+
+<script id="v17-feature-controller">
+(function(){
+  'use strict';
+
+  const VISIT_KEY='michinoeki-visits-v17-working';
+  const RANK_KEY='michinoeki-ranks-v17-working';
+  const ROUTE_KEY='michinoeki-route-v17-working';
+
+  const REGION_MAP2={
+    '北海道':'北海道','青森県':'東北','岩手県':'東北','宮城県':'東北','秋田県':'東北','山形県':'東北','福島県':'東北',
+    '茨城県':'関東','栃木県':'関東','群馬県':'関東','埼玉県':'関東','千葉県':'関東','東京都':'関東','神奈川県':'関東',
+    '新潟県':'北陸・甲信越','富山県':'北陸・甲信越','石川県':'北陸・甲信越','福井県':'北陸・甲信越','山梨県':'北陸・甲信越','長野県':'北陸・甲信越',
+    '岐阜県':'東海','静岡県':'東海','愛知県':'東海','三重県':'東海',
+    '滋賀県':'近畿','京都府':'近畿','大阪府':'近畿','兵庫県':'近畿','奈良県':'近畿','和歌山県':'近畿',
+    '鳥取県':'中国','島根県':'中国','岡山県':'中国','広島県':'中国','山口県':'中国',
+    '徳島県':'四国','香川県':'四国','愛媛県':'四国','高知県':'四国',
+    '福岡県':'九州・沖縄','佐賀県':'九州・沖縄','長崎県':'九州・沖縄','熊本県':'九州・沖縄','大分県':'九州・沖縄',
+    '宮崎県':'九州・沖縄','鹿児島県':'九州・沖縄','沖縄県':'九州・沖縄'
+  };
+
+  function load(key, fallback){
+    try{
+      const v=JSON.parse(localStorage.getItem(key)||'null');
+      return v ?? fallback;
+    }catch(e){return fallback}
+  }
+  function save(key,val){try{localStorage.setItem(key,JSON.stringify(val))}catch(e){}}
+  function h(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+  function allStations(){return Array.isArray(window.STATIONS)?window.STATIONS:(typeof STATIONS!=='undefined'?STATIONS:[])}
+  function sName(s){return s?.name||s?.n||s?.名称||''}
+  function sPref(s){return s?.pref||s?.prefecture||s?.都道府県||''}
+  function sLat(s){return Number(s?.lat??s?.la)}
+  function sLon(s){return Number(s?.lon??s?.lng??s?.lo)}
+  function dist(lat1,lon1,lat2,lon2){
+    const R=6371,toRad=x=>x*Math.PI/180;
+    const dLat=toRad(lat2-lat1),dLon=toRad(lon2-lon1);
+    const a=Math.sin(dLat/2)**2+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+    return 2*R*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  }
+
+  let visits=load(VISIT_KEY,[]);
+  let routeNames=load(ROUTE_KEY,[]);
+  let rankData=load(RANK_KEY,{});
+
+  // Tabs: independent of the rest of the app.
+  document.addEventListener('click',function(e){
+    const b=e.target.closest('[data-v16tab]');
+    if(!b)return;
+    e.preventDefault();
+    const name=b.getAttribute('data-v16tab');
+    document.querySelectorAll('[data-v16tab]').forEach(x=>x.classList.toggle('active',x===b));
+    document.querySelectorAll('[data-v16panel]').forEach(x=>x.classList.toggle('active',x.getAttribute('data-v16panel')===name));
+    if(name==='stamp') renderStamp2();
+    if(name==='route') renderRoute2();
+    if(name==='rank') renderRank2();
+    if(name==='record') renderVisits2();
+  },true);
+
+  function stationByName(name){
+    return allStations().find(s=>sName(s)===name) ||
+           allStations().find(s=>sName(s).includes(name));
+  }
+
+  // ---- Stamp rally: visit records count as stamps ----
+  function renderStamp2(){
+    const el=document.getElementById('stampArea'); if(!el)return;
+    const visitedNames=new Set(visits.map(v=>v.station).filter(Boolean));
+    const byPref={},byRegion={};
+    allStations().forEach(s=>{
+      const pref=sPref(s)||'その他',reg=REGION_MAP2[pref]||'その他';
+      byPref[pref]??={total:0,done:0}; byRegion[reg]??={total:0,done:0};
+      byPref[pref].total++; byRegion[reg].total++;
+      if(visitedNames.has(sName(s))){byPref[pref].done++;byRegion[reg].done++}
+    });
+    const rows=o=>Object.entries(o).sort().map(([n,v])=>{
+      const pct=v.total?100*v.done/v.total:0;
+      return `<div class="progress-row"><div class="progress-head"><span>${v.done===v.total&&v.total?'🏆 ':''}${h(n)}</span><span>${v.done}/${v.total} (${pct.toFixed(0)}%)</span></div><div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div></div>`;
+    }).join('');
+    el.innerHTML=`<div class="feature-note">📸「旅の記録」に保存した道の駅を訪問済みスタンプとして集計します。</div><h4>地方別</h4>${rows(byRegion)}<h4>都道府県別</h4>${rows(byPref)}`;
+  }
+
+  // ---- Route ----
+  function renderRoute2(){
+    const el=document.getElementById('routeArea'); if(!el)return;
+    el.innerHTML=routeNames.length?routeNames.map((n,i)=>`<div class="route-stop"><div class="route-stop-main"><b>${i+1}. ${h(n)}</b></div><button type="button" class="route-remove" data-route-remove="${i}">削除</button></div>`).join(''):'<div class="muted">まだルートに道の駅がありません。</div>';
+  }
+  document.addEventListener('click',function(e){
+    if(e.target.closest('#routeAddBtn')){
+      e.preventDefault();e.stopImmediatePropagation();
+      const inp=document.getElementById('routeStationSearch'),q=inp.value.trim();
+      if(!q)return alert('道の駅名を入力してください。');
+      const s=stationByName(q);
+      if(!s)return alert('道の駅が見つかりませんでした。');
+      const n=sName(s);
+      if(!routeNames.includes(n))routeNames.push(n);
+      save(ROUTE_KEY,routeNames);inp.value='';renderRoute2();return;
+    }
+    if(e.target.closest('#routeClearBtn')){
+      e.preventDefault();e.stopImmediatePropagation();
+      routeNames=[];save(ROUTE_KEY,routeNames);renderRoute2();return;
+    }
+    const rm=e.target.closest('[data-route-remove]');
+    if(rm){
+      e.preventDefault();e.stopImmediatePropagation();
+      routeNames.splice(Number(rm.dataset.routeRemove),1);save(ROUTE_KEY,routeNames);renderRoute2();return;
+    }
+    if(e.target.closest('#makeRouteBtn')){
+      e.preventDefault();e.stopImmediatePropagation();
+      if(!routeNames.length)return alert('先に道の駅をルートに追加してください。');
+      if(!navigator.geolocation)return alert('位置情報を利用できません。');
+      navigator.geolocation.getCurrentPosition(pos=>{
+        const lat=pos.coords.latitude,lon=pos.coords.longitude;
+        routeNames=routeNames.map(n=>({n,s:stationByName(n)})).filter(x=>x.s)
+          .map(x=>({n:x.n,d:dist(lat,lon,sLat(x.s),sLon(x.s))}))
+          .sort((a,b)=>a.d-b.d).map(x=>x.n);
+        save(ROUTE_KEY,routeNames);renderRoute2();
+      },()=>alert('現在地を取得できませんでした。'),{enableHighAccuracy:false,timeout:12000,maximumAge:60000});
+      return;
+    }
+    if(e.target.closest('#openRouteBtn')){
+      e.preventDefault();e.stopImmediatePropagation();
+      if(!routeNames.length)return alert('ルートに道の駅がありません。');
+      const s=stationByName(routeNames[0]); if(!s)return;
+      window.open(`https://maps.apple.com/?daddr=${sLat(s)},${sLon(s)}&dirflg=d`,'_blank');
+      return;
+    }
+  },true);
+
+  // ---- Ranking ----
+  function renderRank2(){
+    const el=document.getElementById('rankArea'); if(!el)return;
+    const cat=document.getElementById('rankCategory')?.value||'overall';
+    const arr=Object.entries(rankData).filter(([,v])=>Number(v?.[cat])>0)
+      .map(([station,v])=>({station,score:Number(v[cat])})).sort((a,b)=>b.score-a.score);
+    el.innerHTML=arr.length?arr.map((x,i)=>`<div class="rank-row"><div class="rank-num">${i+1}</div><div class="rank-info"><b>${h(x.station)}</b></div><div class="stars">${'★'.repeat(x.score)}${'☆'.repeat(5-x.score)}</div></div>`).join(''):'<div class="muted">まだ評価がありません。</div>';
+  }
+  document.addEventListener('click',function(e){
+    if(!e.target.closest('#saveRankBtn'))return;
+    e.preventDefault();e.stopImmediatePropagation();
+    const q=document.getElementById('rankStationInput').value.trim();
+    if(!q)return alert('道の駅名を入力してください。');
+    const s=stationByName(q); if(!s)return alert('道の駅が見つかりませんでした。');
+    const n=sName(s),cat=document.getElementById('rankCategory').value,score=Number(document.getElementById('rankScoreInput').value);
+    rankData[n]??={}; rankData[n][cat]=score; save(RANK_KEY,rankData);
+    document.getElementById('rankStationInput').value='';renderRank2();
+  },true);
+  document.getElementById('rankCategory')?.addEventListener('change',renderRank2);
+
+  // ---- Travel records ----
+  function renderVisits2(){
+    const el=document.getElementById('visitArea'); if(!el)return;
+    el.innerHTML=visits.length?visits.slice().reverse().map((v,ri)=>{
+      const i=visits.length-1-ri;
+      return `<div class="v16-card"><b>${h(v.station)}</b><br><span class="muted">${h(v.date||'')}</span><p>${h(v.note||'')}</p>${v.buy?`<div>🛍️ ${h(v.buy)}</div>`:''}${v.photo?`<img class="visit-photo" src="${v.photo}">`:''}<button type="button" class="v16-btn secondary" data-visit-delete="${i}">この記録を削除</button></div>`;
+    }).join(''):'<div class="muted">まだ訪問記録はありません。</div>';
+  }
+  document.addEventListener('click',function(e){
+    if(e.target.closest('#saveVisitBtn')){
+      e.preventDefault();e.stopImmediatePropagation();
+      const stationQ=document.getElementById('visitStation').value.trim();
+      if(!stationQ)return alert('道の駅名を入力してください。');
+      const s=stationByName(stationQ);
+      const station=s?sName(s):stationQ;
+      const file=document.getElementById('visitPhoto').files[0];
+      const finish=photo=>{
+        visits.push({
+          station,
+          date:document.getElementById('visitDate').value,
+          note:document.getElementById('visitNote').value,
+          buy:document.getElementById('visitBuy').value,
+          photo:photo||''
+        });
+        try{save(VISIT_KEY,visits)}catch(err){}
+        document.getElementById('visitStation').value='';
+        document.getElementById('visitNote').value='';
+        document.getElementById('visitBuy').value='';
+        document.getElementById('visitPhoto').value='';
+        renderVisits2();renderStamp2();
+      };
+      if(file){
+        const r=new FileReader();
+        r.onload=()=>finish(r.result);
+        r.readAsDataURL(file);
+      }else finish('');
+      return;
+    }
+    const del=e.target.closest('[data-visit-delete]');
+    if(del){
+      e.preventDefault();e.stopImmediatePropagation();
+      visits.splice(Number(del.dataset.visitDelete),1);save(VISIT_KEY,visits);renderVisits2();renderStamp2();return;
+    }
+  },true);
+
+  // Initialize.
+  setTimeout(function(){
+    renderStamp2();renderRoute2();renderRank2();renderVisits2();
+  },100);
+})();
+</script>
+
 </body>
 </html>
