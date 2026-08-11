@@ -146,6 +146,34 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
 
 .badge{display:inline-block;padding:5px 8px;border-radius:99px;background:#eef4f2;margin:3px;font-size:12px;font-weight:700}
 .badge.done{background:#fff2b8}
+
+.personal-filter-row{
+  display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;margin-top:10px
+}
+.pref-filter{
+  width:100%;min-width:0;font-size:15px;padding:11px 12px;border:1px solid var(--border);
+  border-radius:12px;background:#fff;color:var(--text)
+}
+.favorite-only{
+  display:flex;align-items:center;gap:6px;white-space:nowrap;font-size:13px;font-weight:700;
+  background:#f7faf9;border:1px solid var(--border);border-radius:12px;padding:10px
+}
+.favorite-only input{width:19px;height:19px}
+.personal-tools{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px;padding-top:12px;
+  border-top:1px solid var(--border)
+}
+.favorite-btn{
+  background:#fff7d6;color:#6b5200;border:1px solid #ead27a;padding:9px 11px;font-size:14px
+}
+.favorite-btn.active{background:#f7d24a;color:#382d00}
+.rating-wrap{
+  display:inline-flex;align-items:center;gap:7px;background:#f7faf9;border:1px solid var(--border);
+  border-radius:11px;padding:6px 9px;font-size:13px;font-weight:700
+}
+.rating-select{font-size:14px;padding:7px 8px;border-radius:9px}
+.personal-summary{font-size:12px;color:var(--muted);margin-top:8px}
+
 </style>
 </head>
 <body>
@@ -161,6 +189,15 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
     <button id="clearSearch" type="button" class="search-clear" aria-label="検索をクリア">×</button>
   </div>
   <div class="search-help">道の駅名・都道府県・市町村・自分で書いたメモから検索できます。</div>
+  <div class="personal-filter-row">
+    <select id="prefFilter" class="pref-filter" aria-label="都道府県で絞り込み">
+      <option value="">全国（都道府県を選択）</option>
+    </select>
+    <label class="favorite-only">
+      <input id="favoriteOnly" type="checkbox"> ★ お気に入りのみ
+    </label>
+  </div>
+  <div class="personal-summary" id="personalSummary">お気に入り 0件</div>
   <div id="searchResults" aria-live="polite"></div>
 </section>
 <section class="map-wrap">
@@ -255,26 +292,6 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
 </main>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-const STAMP_TOTAL=1145,WANT_KEY='michinoeki-want-v1',VISITED_KEY='michinoeki-visited-v1';
-function loadStampSet(k){try{return new Set(JSON.parse(localStorage.getItem(k)||'[]'))}catch(e){return new Set()}}
-let wantSet=loadStampSet(WANT_KEY),visitedSet=loadStampSet(VISITED_KEY);
-function updateStampUI(){
- const vc=document.getElementById('visitedCount'),wc=document.getElementById('wantCount');
- if(vc){vc.textContent=visitedSet.size;wc.textContent=wantSet.size;
- const pct=Math.min(100,visitedSet.size/STAMP_TOTAL*100);
- document.getElementById('stampProgressBar').style.width=pct+'%';
- document.getElementById('stampPercent').textContent='達成率 '+pct.toFixed(1)+'%';}
- document.querySelectorAll('[data-stamp-id]').forEach(box=>{
- const id=decodeURIComponent(box.dataset.stampId);
- box.querySelector('.want-stamp')?.classList.toggle('active',wantSet.has(id));
- box.querySelector('.visited-stamp')?.classList.toggle('active',visitedSet.has(id));});
-}
-function saveStampSets(){localStorage.setItem(WANT_KEY,JSON.stringify([...wantSet]));localStorage.setItem(VISITED_KEY,JSON.stringify([...visitedSet]));updateStampUI()}
-new MutationObserver(updateStampUI).observe(document.body,{childList:true,subtree:true});
-setTimeout(updateStampUI,0);
-
-</script>
 <script>
 let map=null;
 let userMarker=null;
@@ -436,6 +453,71 @@ const clearSearch=document.getElementById('clearSearch');
 const searchResults=document.getElementById('searchResults');
 const MEMO_KEY='michinoeki-memos-v1';
 
+const FAVORITE_KEY='michinoeki-favorites-v1';
+const RATING_KEY='michinoeki-ratings-v1';
+const prefFilter=document.getElementById('prefFilter');
+const favoriteOnly=document.getElementById('favoriteOnly');
+const personalSummary=document.getElementById('personalSummary');
+
+function loadFavorites(){
+ try{return new Set(JSON.parse(localStorage.getItem(FAVORITE_KEY)||'[]'))}catch(e){return new Set()}
+}
+function saveFavorites(set){
+ localStorage.setItem(FAVORITE_KEY,JSON.stringify([...set]));
+}
+function loadRatings(){
+ try{return JSON.parse(localStorage.getItem(RATING_KEY)||'{}')}catch(e){return {}}
+}
+function saveRatings(obj){
+ localStorage.setItem(RATING_KEY,JSON.stringify(obj));
+}
+function isFavorite(s){
+ return loadFavorites().has(stationId(s));
+}
+function getRating(s){
+ return Number(loadRatings()[stationId(s)]||0);
+}
+function setFavorite(s,on){
+ const set=loadFavorites(),id=stationId(s);
+ if(on)set.add(id);else set.delete(id);
+ saveFavorites(set);
+}
+function setRating(s,value){
+ const obj=loadRatings(),id=stationId(s),n=Number(value)||0;
+ if(n)obj[id]=n;else delete obj[id];
+ saveRatings(obj);
+}
+function passesPersonalFilters(s){
+ const pref=prefFilter?.value||'';
+ if(pref && s.p!==pref)return false;
+ if(favoriteOnly?.checked && !isFavorite(s))return false;
+ return true;
+}
+function ratingOptions(value){
+ return [
+  [0,'未評価'],[5,'★★★★★ 5'],[4,'★★★★☆ 4'],[3,'★★★☆☆ 3'],[2,'★★☆☆☆ 2'],[1,'★☆☆☆☆ 1']
+ ].map(([v,label])=>`<option value="${v}"${Number(value)===v?' selected':''}>${label}</option>`).join('');
+}
+function personalMarkup(s){
+ const sid=encodeURIComponent(stationId(s));
+ const fav=isFavorite(s),rating=getRating(s);
+ return `<div class="personal-tools" data-personal-id="${sid}">
+   <button type="button" class="favorite-btn${fav?' active':''}" data-action="toggle-favorite" aria-pressed="${fav?'true':'false'}">
+     ${fav?'★ お気に入り':'☆ お気に入り'}
+   </button>
+   <label class="rating-wrap">自分用評価
+     <select class="rating-select" data-action="set-rating" aria-label="${esc(s.n)}の自分用評価">
+       ${ratingOptions(rating)}
+     </select>
+   </label>
+ </div>`;
+}
+function updatePersonalSummary(){
+ if(!personalSummary)return;
+ personalSummary.textContent=`お気に入り ${loadFavorites().size}件`;
+}
+
+
 function stationId(s){
  return `${s.n}|${s.p}|${s.c}|${s.la}|${s.lo}`;
 }
@@ -459,13 +541,20 @@ function setMemo(s,text){
 function stationSearchText(s){
  return `${s.n} ${s.p} ${s.c} ${getMemo(s)}`.toLowerCase();
 }
+function initPrefFilter(){
+ if(!prefFilter)return;
+ const prefs=[...new Set(STATIONS.map(s=>s.p).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ja'));
+ prefFilter.innerHTML='<option value="">全国（都道府県を選択）</option>'+
+  prefs.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('');
+}
+
 function memoMarkup(s){
  const memo=getMemo(s);
  const sid=encodeURIComponent(stationId(s));
  return `<div class="memo-box" data-station-id="${sid}">
    <div class="memo-label">📝 自分のメモ</div>
    ${memo?`<div class="memo-text">${esc(memo)}</div>`:`<div class="memo-empty">まだメモはありません。</div>`}
-   <button type="button" class="memo-btn" data-action="edit-memo" data-sid="${sid}">${memo?'メモを編集':'メモを書く'}</button><div class="muted" style="font-size:11px">施設タグは情報確認用です。実在設備は公式サイトで確認してください。</div></div>`;
+   <button type="button" class="memo-btn" data-action="edit-memo" data-sid="${sid}">${memo?'メモを編集':'メモを書く'}</button></div>`;
 }
 function attachMemoHandlers(root=document){
  root.querySelectorAll('[data-action="edit-memo"]').forEach(btn=>{
@@ -493,16 +582,18 @@ function attachMemoHandlers(root=document){
 }
 function renderSearchResults(query){
  const q=(query||'').trim().toLowerCase();
- if(!q){
+ const personalFilterActive=Boolean((prefFilter?.value||'') || favoriteOnly?.checked);
+ if(!q && !personalFilterActive){
   searchResults.innerHTML='';
+  updatePersonalSummary();
   return;
  }
- const hits=STATIONS.filter(s=>stationSearchText(s).includes(q)).slice(0,100);
+ const hits=STATIONS.filter(s=>(!q || stationSearchText(s).includes(q)) && passesPersonalFilters(s)).slice(0,200);
  if(!hits.length){
   searchResults.innerHTML='<div class="search-results-title">該当する道の駅はありません</div>';
   return;
  }
- searchResults.innerHTML=`<div class="search-results-title">${hits.length}${hits.length===100?'件以上':'件'}見つかりました</div>`+
+ searchResults.innerHTML=`<div class="search-results-title">${hits.length}${hits.length===200?'件以上':'件'}見つかりました</div>`+
   hits.map(s=>{
    const google='https://www.google.com/search?q='+encodeURIComponent(`${s.n} 公式`);
    const home=s.u||google;
@@ -514,6 +605,7 @@ function renderSearchResults(query){
        <a class="btn primary" href="${home}" target="_blank" rel="noopener">🌐 ホームページ</a>
        <a class="btn secondary" href="${nav}" target="_blank" rel="noopener">🚗 経路案内</a>
      </div>
+     ${personalMarkup(s)}
      ${memoMarkup(s)}
    </section>`;
   }).join('');
@@ -533,6 +625,36 @@ clearSearch.addEventListener('click',()=>{
 });
 
 
+document.addEventListener('click',e=>{
+ const btn=e.target.closest('[data-action="toggle-favorite"]');
+ if(!btn)return;
+ const box=btn.closest('[data-personal-id]');
+ if(!box)return;
+ const sid=decodeURIComponent(box.dataset.personalId);
+ const s=STATIONS.find(x=>stationId(x)===sid);
+ if(!s)return;
+ setFavorite(s,!isFavorite(s));
+ refreshVisibleViews();
+ updatePersonalSummary();
+});
+
+document.addEventListener('change',e=>{
+ if(!e.target.matches('[data-action="set-rating"]'))return;
+ const box=e.target.closest('[data-personal-id]');
+ if(!box)return;
+ const sid=decodeURIComponent(box.dataset.personalId);
+ const s=STATIONS.find(x=>stationId(x)===sid);
+ if(!s)return;
+ setRating(s,e.target.value);
+ updatePersonalSummary();
+});
+
+prefFilter?.addEventListener('change',refreshVisibleViews);
+favoriteOnly?.addEventListener('change',refreshVisibleViews);
+initPrefFilter();
+updatePersonalSummary();
+
+
 function setStatus(title,detail=''){
  statusEl.innerHTML=`<strong>${title}</strong><div class="muted">${detail}</div>`;
 }
@@ -546,8 +668,12 @@ function haversine(lat1,lon1,lat2,lon2){
  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 function render(items,radiusKm){
+ const beforeFilterCount=items.length;
+ items=items.filter(passesPersonalFilters);
  if(!items.length){
-  resultsEl.innerHTML=`<section class="card empty"><div class="big">🔎</div><h2>${radiusKm}km以内に道の駅が見つかりませんでした</h2><div class="muted">検索範囲を20km・50km・100kmに広げて再検索できます。</div></section>`;
+  resultsEl.innerHTML=beforeFilterCount
+   ? `<section class="card empty"><div class="big">🔎</div><h2>現在の絞り込み条件に合う道の駅がありません</h2><div class="muted">都道府県または「お気に入りのみ」を変更してください。</div></section>`
+   : `<section class="card empty"><div class="big">🔎</div><h2>${radiusKm}km以内に道の駅が見つかりませんでした</h2><div class="muted">検索範囲を20km・50km・100kmに広げて再検索できます。</div></section>`;
   return;
  }
  resultsEl.innerHTML=items.map((s,i)=>{
@@ -565,6 +691,7 @@ function render(items,radiusKm){
     <a class="btn secondary" href="${map}" target="_blank" rel="noopener">🗺 地図</a>
     <a class="btn secondary" href="${nav}" target="_blank" rel="noopener">🚗 経路案内</a>
    </div>
+   ${personalMarkup(s)}
    ${memoMarkup(s)}
   </section>`;
  }).join('');
@@ -675,7 +802,7 @@ locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch(
 radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=23').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=24').catch(()=>{}));
 }
 </script>
 </body>
