@@ -174,6 +174,44 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
 .rating-select{font-size:14px;padding:7px 8px;border-radius:9px}
 .personal-summary{font-size:12px;color:var(--muted);margin-top:8px}
 
+
+.advanced-panel{
+  background:var(--card);border:1px solid var(--border);border-radius:16px;
+  padding:12px;margin-top:10px
+}
+.advanced-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px
+}
+.advanced-grid select,.advanced-grid button,.advanced-grid label{
+  width:100%
+}
+.inline-check{
+  display:flex;align-items:center;gap:7px;background:#f7faf9;border:1px solid var(--border);
+  border-radius:11px;padding:9px 10px;font-size:13px;font-weight:700
+}
+.inline-check input{width:18px;height:18px}
+.history-wrap{margin-top:10px}
+.history-chips{display:flex;gap:6px;flex-wrap:wrap}
+.history-chip{
+  border:1px solid var(--border);background:#f7faf9;border-radius:999px;padding:7px 10px;
+  font-size:12px;font-weight:700
+}
+.recent-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.recent-item{
+  display:flex;justify-content:space-between;gap:8px;align-items:center;
+  background:#f7faf9;border:1px solid var(--border);border-radius:10px;padding:8px 10px
+}
+.recent-item button{padding:6px 9px;font-size:12px}
+.tag-editor{margin-top:10px}
+.tag-input-row{display:flex;gap:7px}
+.tag-input-row input{
+  flex:1;min-width:0;border:1px solid var(--border);border-radius:10px;padding:9px 10px;font-size:15px
+}
+.tag-list{display:flex;gap:5px;flex-wrap:wrap;margin-top:7px}
+.user-tag{background:#eef4f2;border-radius:999px;padding:5px 8px;font-size:12px}
+.backup-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.backup-status{font-size:12px;color:var(--muted);margin-top:6px}
+
 </style>
 </head>
 <body>
@@ -198,6 +236,41 @@ select{font-size:16px;padding:9px 10px;border:1px solid var(--border);border-rad
     </label>
   </div>
   <div class="personal-summary" id="personalSummary">お気に入り 0件</div>
+
+  <div class="advanced-panel">
+    <strong>追加絞り込み・履歴</strong>
+    <div class="advanced-grid">
+      <select id="sortMode" aria-label="並び順">
+        <option value="default">標準順</option>
+        <option value="rating_desc">評価が高い順</option>
+        <option value="name_asc">名前順</option>
+      </select>
+      <label class="inline-check">
+        <input id="memoOnly" type="checkbox"> メモありだけ
+      </label>
+    </div>
+
+    <div class="history-wrap">
+      <div class="muted">検索履歴</div>
+      <div class="history-chips" id="searchHistory"></div>
+    </div>
+
+    <div class="history-wrap">
+      <div class="muted">最近見た道の駅</div>
+      <div class="recent-list" id="recentStations"></div>
+    </div>
+
+    <div class="history-wrap">
+      <div class="muted">バックアップ／復元</div>
+      <div class="backup-actions">
+        <button type="button" class="secondary" id="backupBtn">⬇️ バックアップ</button>
+        <button type="button" class="secondary" id="restoreBtn">⬆️ 復元</button>
+        <input id="restoreFile" type="file" accept="application/json,.json" hidden>
+      </div>
+      <div class="backup-status" id="backupStatus"></div>
+    </div>
+  </div>
+
   <div id="searchResults" aria-live="polite"></div>
 </section>
 <section class="map-wrap">
@@ -459,6 +532,19 @@ const prefFilter=document.getElementById('prefFilter');
 const favoriteOnly=document.getElementById('favoriteOnly');
 const personalSummary=document.getElementById('personalSummary');
 
+const TAG_KEY='michinoeki-tags-v1';
+const RECENT_KEY='michinoeki-recent-v1';
+const SEARCH_HISTORY_KEY='michinoeki-search-history-v1';
+const sortMode=document.getElementById('sortMode');
+const memoOnly=document.getElementById('memoOnly');
+const searchHistoryEl=document.getElementById('searchHistory');
+const recentStationsEl=document.getElementById('recentStations');
+const backupBtn=document.getElementById('backupBtn');
+const restoreBtn=document.getElementById('restoreBtn');
+const restoreFile=document.getElementById('restoreFile');
+const backupStatus=document.getElementById('backupStatus');
+
+
 function loadFavorites(){
  try{return new Set(JSON.parse(localStorage.getItem(FAVORITE_KEY)||'[]'))}catch(e){return new Set()}
 }
@@ -471,6 +557,50 @@ function loadRatings(){
 function saveRatings(obj){
  localStorage.setItem(RATING_KEY,JSON.stringify(obj));
 }
+
+function loadTags(){
+ try{return JSON.parse(localStorage.getItem(TAG_KEY)||'{}')}catch(e){return {}}
+}
+function saveTags(obj){
+ localStorage.setItem(TAG_KEY,JSON.stringify(obj));
+}
+function getTags(s){
+ return loadTags()[stationId(s)]||[];
+}
+function setTags(s,tags){
+ const obj=loadTags(),id=stationId(s);
+ const clean=[...new Set(tags.map(x=>String(x).trim()).filter(Boolean))].slice(0,20);
+ if(clean.length)obj[id]=clean;else delete obj[id];
+ saveTags(obj);
+}
+function loadRecent(){
+ try{return JSON.parse(localStorage.getItem(RECENT_KEY)||'[]')}catch(e){return []}
+}
+function saveRecent(arr){
+ localStorage.setItem(RECENT_KEY,JSON.stringify(arr.slice(0,20)));
+}
+function addRecent(s){
+ const id=stationId(s);
+ let arr=loadRecent().filter(x=>x.id!==id);
+ arr.unshift({id,name:s.n,p:s.p,c:s.c});
+ saveRecent(arr);
+ renderRecentStations();
+}
+function loadSearchHistory(){
+ try{return JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY)||'[]')}catch(e){return []}
+}
+function saveSearchHistory(arr){
+ localStorage.setItem(SEARCH_HISTORY_KEY,JSON.stringify(arr.slice(0,10)));
+}
+function addSearchHistory(q){
+ const v=String(q||'').trim();
+ if(!v)return;
+ let arr=loadSearchHistory().filter(x=>x!==v);
+ arr.unshift(v);
+ saveSearchHistory(arr);
+ renderSearchHistory();
+}
+
 function isFavorite(s){
  return loadFavorites().has(stationId(s));
 }
@@ -491,7 +621,18 @@ function passesPersonalFilters(s){
  const pref=prefFilter?.value||'';
  if(pref && s.p!==pref)return false;
  if(favoriteOnly?.checked && !isFavorite(s))return false;
+ if(memoOnly?.checked && !getMemo(s).trim())return false;
  return true;
+}
+function sortStations(items){
+ const mode=sortMode?.value||'default';
+ const arr=[...items];
+ if(mode==='rating_desc'){
+   arr.sort((a,b)=>getRating(b)-getRating(a) || String(a.n).localeCompare(String(b.n),'ja'));
+ }else if(mode==='name_asc'){
+   arr.sort((a,b)=>String(a.n).localeCompare(String(b.n),'ja'));
+ }
+ return arr;
 }
 function ratingOptions(value){
  return [
@@ -501,6 +642,7 @@ function ratingOptions(value){
 function personalMarkup(s){
  const sid=encodeURIComponent(stationId(s));
  const fav=isFavorite(s),rating=getRating(s);
+ const tags=getTags(s);
  return `<div class="personal-tools" data-personal-id="${sid}">
    <button type="button" class="favorite-btn${fav?' active':''}" data-action="toggle-favorite" aria-pressed="${fav?'true':'false'}">
      ${fav?'★ お気に入り':'☆ お気に入り'}
@@ -510,6 +652,15 @@ function personalMarkup(s){
        ${ratingOptions(rating)}
      </select>
    </label>
+   <div class="tag-editor">
+     <div class="tag-input-row">
+       <input type="text" class="tag-input" placeholder="タグ追加（例：温泉、景色）" maxlength="40">
+       <button type="button" class="secondary" data-action="add-tag">追加</button>
+     </div>
+     <div class="tag-list">
+       ${tags.map(t=>`<span class="user-tag">${esc(t)}</span>`).join('')}
+     </div>
+   </div>
  </div>`;
 }
 function updatePersonalSummary(){
@@ -539,7 +690,7 @@ function setMemo(s,text){
  saveMemos(memos);
 }
 function stationSearchText(s){
- return `${s.n} ${s.p} ${s.c} ${getMemo(s)}`.toLowerCase();
+ return `${s.n} ${s.p} ${s.c} ${getMemo(s)} ${getTags(s).join(' ')}`.toLowerCase();
 }
 function initPrefFilter(){
  if(!prefFilter)return;
@@ -588,7 +739,7 @@ function renderSearchResults(query){
   updatePersonalSummary();
   return;
  }
- const hits=STATIONS.filter(s=>(!q || stationSearchText(s).includes(q)) && passesPersonalFilters(s)).slice(0,200);
+ const hits=sortStations(STATIONS.filter(s=>(!q || stationSearchText(s).includes(q)) && passesPersonalFilters(s))).slice(0,200);
  if(!hits.length){
   searchResults.innerHTML='<div class="search-results-title">該当する道の駅はありません</div>';
   return;
@@ -598,7 +749,7 @@ function renderSearchResults(query){
    const google='https://www.google.com/search?q='+encodeURIComponent(`${s.n} 公式`);
    const home=s.u||google;
    const nav=`https://maps.apple.com/?daddr=${s.la},${s.lo}&dirflg=d`;
-   return `<section class="card station search-hit">
+   return `<section class="card station search-hit" data-view-station="${encodeURIComponent(stationId(s))}">
      <h2>${esc(s.n)}</h2>
      <div class="muted">${esc(s.p)} ${esc(s.c)}</div>
      <div class="actions">
@@ -624,6 +775,57 @@ clearSearch.addEventListener('click',()=>{
  stationSearch.focus();
 });
 
+
+
+function renderSearchHistory(){
+ if(!searchHistoryEl)return;
+ const arr=loadSearchHistory();
+ searchHistoryEl.innerHTML=arr.length
+   ? arr.map(q=>`<button type="button" class="history-chip" data-history-query="${encodeURIComponent(q)}">${esc(q)}</button>`).join('')
+   : '<span class="muted">まだ履歴はありません。</span>';
+}
+function renderRecentStations(){
+ if(!recentStationsEl)return;
+ const arr=loadRecent();
+ recentStationsEl.innerHTML=arr.length
+   ? arr.map(x=>`<div class="recent-item"><div><strong>${esc(x.name)}</strong><div class="muted">${esc(x.p||'')} ${esc(x.c||'')}</div></div><button type="button" class="secondary" data-recent-id="${encodeURIComponent(x.id)}">表示</button></div>`).join('')
+   : '<span class="muted">まだありません。</span>';
+}
+function backupData(){
+ const data={
+   version:1,
+   exportedAt:new Date().toISOString(),
+   memos:loadMemos(),
+   favorites:[...loadFavorites()],
+   ratings:loadRatings(),
+   tags:loadTags(),
+   recent:loadRecent(),
+   searchHistory:loadSearchHistory()
+ };
+ const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+ const url=URL.createObjectURL(blob);
+ const a=document.createElement('a');
+ a.href=url;
+ a.download='michinoeki-backup.json';
+ document.body.appendChild(a);
+ a.click();
+ a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+ if(backupStatus)backupStatus.textContent='バックアップファイルを作成しました。';
+}
+function restoreDataFromObject(data){
+ if(!data || typeof data!=='object')throw new Error('invalid');
+ if(data.memos)localStorage.setItem(MEMO_KEY,JSON.stringify(data.memos));
+ if(Array.isArray(data.favorites))localStorage.setItem(FAVORITE_KEY,JSON.stringify(data.favorites));
+ if(data.ratings)localStorage.setItem(RATING_KEY,JSON.stringify(data.ratings));
+ if(data.tags)localStorage.setItem(TAG_KEY,JSON.stringify(data.tags));
+ if(Array.isArray(data.recent))localStorage.setItem(RECENT_KEY,JSON.stringify(data.recent));
+ if(Array.isArray(data.searchHistory))localStorage.setItem(SEARCH_HISTORY_KEY,JSON.stringify(data.searchHistory));
+ updatePersonalSummary();
+ renderSearchHistory();
+ renderRecentStations();
+ refreshVisibleViews();
+}
 
 document.addEventListener('click',e=>{
  const btn=e.target.closest('[data-action="toggle-favorite"]');
@@ -651,6 +853,80 @@ document.addEventListener('change',e=>{
 
 prefFilter?.addEventListener('change',refreshVisibleViews);
 favoriteOnly?.addEventListener('change',refreshVisibleViews);
+
+document.addEventListener('click',e=>{
+ const add=e.target.closest('[data-action="add-tag"]');
+ if(add){
+   const box=add.closest('[data-personal-id]');
+   const sid=decodeURIComponent(box.dataset.personalId);
+   const s=STATIONS.find(x=>stationId(x)===sid);
+   if(!s)return;
+   const input=box.querySelector('.tag-input');
+   const tag=input.value.trim();
+   if(tag){
+     setTags(s,[...getTags(s),tag]);
+     refreshVisibleViews();
+   }
+   return;
+ }
+
+ const card=e.target.closest('[data-view-station]');
+ if(card && !e.target.closest('button,a,select,input,textarea,label')){
+   const sid=decodeURIComponent(card.dataset.viewStation);
+   const s=STATIONS.find(x=>stationId(x)===sid);
+   if(s)addRecent(s);
+ }
+
+ const hist=e.target.closest('[data-history-query]');
+ if(hist){
+   stationSearch.value=decodeURIComponent(hist.dataset.historyQuery);
+   renderSearchResults(stationSearch.value);
+   return;
+ }
+
+ const recent=e.target.closest('[data-recent-id]');
+ if(recent){
+   const sid=decodeURIComponent(recent.dataset.recentId);
+   const s=STATIONS.find(x=>stationId(x)===sid);
+   if(s){
+     stationSearch.value=s.n;
+     renderSearchResults(s.n);
+     addRecent(s);
+   }
+   return;
+ }
+});
+
+sortMode?.addEventListener('change',refreshVisibleViews);
+memoOnly?.addEventListener('change',refreshVisibleViews);
+
+stationSearch.addEventListener('change',()=>{
+ addSearchHistory(stationSearch.value);
+});
+
+backupBtn?.addEventListener('click',backupData);
+restoreBtn?.addEventListener('click',()=>restoreFile?.click());
+restoreFile?.addEventListener('change',()=>{
+ const file=restoreFile.files?.[0];
+ if(!file)return;
+ const reader=new FileReader();
+ reader.onload=()=>{
+   try{
+     const data=JSON.parse(String(reader.result||''));
+     restoreDataFromObject(data);
+     if(backupStatus)backupStatus.textContent='復元しました。';
+   }catch(e){
+     if(backupStatus)backupStatus.textContent='復元できませんでした。バックアップJSONを確認してください。';
+   }finally{
+     restoreFile.value='';
+   }
+ };
+ reader.readAsText(file);
+});
+
+renderSearchHistory();
+renderRecentStations();
+
 initPrefFilter();
 updatePersonalSummary();
 
@@ -669,7 +945,7 @@ function haversine(lat1,lon1,lat2,lon2){
 }
 function render(items,radiusKm){
  const beforeFilterCount=items.length;
- items=items.filter(passesPersonalFilters);
+ items=sortStations(items.filter(passesPersonalFilters));
  if(!items.length){
   resultsEl.innerHTML=beforeFilterCount
    ? `<section class="card empty"><div class="big">🔎</div><h2>現在の絞り込み条件に合う道の駅がありません</h2><div class="muted">都道府県または「お気に入りのみ」を変更してください。</div></section>`
@@ -681,7 +957,7 @@ function render(items,radiusKm){
   const nav=`https://maps.apple.com/?daddr=${s.la},${s.lo}&dirflg=d`;
   const google='https://www.google.com/search?q='+encodeURIComponent(`${s.n} 公式`);
   const home=s.u||google;
-  return `<section class="card station">
+  return `<section class="card station" data-view-station="${encodeURIComponent(stationId(s))}">
    <span class="badge">${i===0?'いちばん近い':'近くの道の駅'}</span>
    <div class="distance">${s.d.toFixed(1)} km</div>
    <h2>${esc(s.n)}</h2>
@@ -802,7 +1078,7 @@ locateBtn.addEventListener('click',()=>{setMainView('roadside');locateAndSearch(
 radiusEl.addEventListener('change',()=>{setMainView('roadside');locateAndSearch();});
 window.addEventListener('load',()=>{initMap();locateAndSearch();});
 if('serviceWorker' in navigator){
- window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=24').catch(()=>{}));
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js?v=25').catch(()=>{}));
 }
 </script>
 </body>
